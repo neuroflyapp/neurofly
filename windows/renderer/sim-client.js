@@ -38,8 +38,10 @@ export class SimClient {
     }
   }
 
+  // `data` is the brain bundle, or the same bundle as JSON text (parsed in the worker).
   init(data, bounds, seed, ambient, { startPaused = false } = {}) {
-    this.worker.postMessage({ type: 'init', data, bounds, seed, ambient, startPaused });
+    const payload = typeof data === 'string' ? { dataText: data } : { data };
+    this.worker.postMessage({ type: 'init', ...payload, bounds, seed, ambient, startPaused });
     return this.ready;
   }
 

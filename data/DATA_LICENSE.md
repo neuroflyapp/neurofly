@@ -1,19 +1,20 @@
 # Licences of the neural data
 
 The files in this folder are derived from published connectome datasets. They
-keep the licence of their source and require attribution. The NeuroFly program
+keep the licence of their source and require attribution. The NeuroCause program
 licence does not apply to them.
 
 | Files | Source | Licence |
 |---|---|---|
 | `brain_points.json`, `circuit.json`, `circuit_annotations.json`, `thermo_extension.json`, `sensory_extension.json`, `sentience_pathways.json` | FlyWire FAFB v783, adult female brain ([FlyWire Codex](https://codex.flywire.ai)) | [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): non-commercial use only |
 | `locomotor_circuit.json`, `locomotor_report.json` | MaleCNS v1.0, adult male brain and nerve cord ([download page](https://male-cns.janelia.org/download/)) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
-| `rhythm_decoder.json` | derived from NeuroFly's model of the MaleCNS cord (see `LOCOMOTOR_PROVENANCE.md`) | CC BY 4.0, as its source |
+| `rhythm_decoder.json` | derived from the NeuroCause model of the MaleCNS cord (see `LOCOMOTOR_PROVENANCE.md`) | CC BY 4.0, as its source |
 
 The anatomy bundles in `windows/assets/connectomes/` (FAFB v783, MaleCNS v1.0,
-BANC v888) are described, with their licences, in that folder's `README.md`.
+BANC v888, MANC v1.0 and the male optic lobe v1.1) are described, with their
+licences, in that folder's `README.md`.
 
-NeuroFly selects subgraphs, adds cell-type annotations and derives signed
+NeuroCause selects subgraphs, adds cell-type annotations and derives signed
 synapse-count weights; these are changes to the source data in the sense of the
 Creative Commons licences. Each derived file records its sources and SHA-256
 fingerprints. The scripts that build them are `etl.py`, `etl_cell_annotations.mjs`,

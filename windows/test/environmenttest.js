@@ -7,7 +7,7 @@
 // average, and the circadian curve has to keep the daily structure the neural
 // baseline is tuned against.
 
-import { circadianActivity, localTemperature } from '../src/environment.js';
+import { circadianActivity, localTemperature, InputDisturbance, DISTURBANCE_QUIET_S } from '../src/environment.js';
 
 let failures = 0;
 function check(name, fn) {
@@ -54,6 +54,21 @@ check('temperature varies monotonically across the arena', () => {
     prev = t;
   }
   return [ok, 'no reversals between the cool and warm ends'];
+});
+
+check('steady computer use is no tonic sound: only input after a quiet spell disturbs the fly, briefly', () => {
+  const d = new InputDisturbance();
+  const dt = 1 / 30;
+  let steadyMax = 0;
+  for (let i = 0; i < 30 * 60; i++) steadyMax = Math.max(steadyMax, d.poll(i % 45 < 20 ? 0 : 1, dt));   // a minute of work
+  for (let i = 0; i < 30 * DISTURBANCE_QUIET_S; i++) d.poll(Math.floor(i / 30) + 1, dt);                // a quiet spell
+  const onset = d.poll(0, dt);
+  let after = onset; for (let i = 0; i < 45; i++) after = d.poll(0, dt);                                // 1.5 s of typing
+  const short = new InputDisturbance();
+  for (let i = 0; i < 90; i++) short.poll(Math.floor(i / 30) + 1, dt);                                   // only 3 s quiet
+  const shortOnset = short.poll(0, dt);
+  const ok = steadyMax === 0 && onset === 1 && after < 0.1 && shortOnset === 0;
+  return [ok, `steady use ${steadyMax}, onset after ${DISTURBANCE_QUIET_S} s quiet ${onset}, ${after.toFixed(3)} 1.5 s later, after 3 s quiet ${shortOnset}`];
 });
 
 check('the circadian curve keeps its documented daily structure', () => {

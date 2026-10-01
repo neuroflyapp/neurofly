@@ -1,5 +1,6 @@
 // environment.js — senses that need no operating-system access, only arithmetic.
-// (The idle-timer and typing senses need Electron's powerMonitor: main.js.)
+// (The idle timer itself needs Electron's powerMonitor: main.js polls it and
+// passes the seconds to InputDisturbance below.)
 
 // Activity of Drosophila over the day, as a multiplier on the network's
 // baseline drive: quiet at night, a peak around dawn and one around dusk, a
@@ -35,4 +36,30 @@ export function localTemperature(meanC, spanC, u) {
   if (!spanC) return meanC;
   const clamped = u < 0 ? 0 : u > 1 ? 1 : u;
   return meanC + (clamped - 0.5) * spanC;
+}
+
+// Someone at the computer, as the fly perceives it: input that resumes after
+// a quiet spell is one brief acoustic disturbance (the `typing` ambient
+// signal, which reaches only the auditory Johnston's-organ neurons). Steady
+// use of the computer is not: the idle timer counts every mouse movement, and
+// treating that as tonic near-field sound drove the giant fiber into a
+// takeoff every two seconds for as long as anyone used the machine.
+export const DISTURBANCE_QUIET_S = 8;     // input counts only after this much quiet
+export const DISTURBANCE_DECAY_S = 0.6;   // e-folding time of one disturbance
+
+export class InputDisturbance {
+  constructor() {
+    this.level = 0;
+    this.previousIdle = 0;   // no disturbance at start-up
+  }
+
+  // `idleSeconds`: the system idle time (whole seconds); `dtSeconds`: time
+  // since the previous poll. Returns the disturbance level, 0..1.
+  poll(idleSeconds, dtSeconds) {
+    const resumed = idleSeconds < 1 && this.previousIdle >= DISTURBANCE_QUIET_S;
+    this.previousIdle = idleSeconds;
+    const dt = Number.isFinite(dtSeconds) && dtSeconds > 0 ? dtSeconds : 0;
+    this.level = resumed ? 1 : this.level * Math.exp(-dt / DISTURBANCE_DECAY_S);
+    return this.level;
+  }
 }

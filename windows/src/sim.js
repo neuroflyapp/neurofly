@@ -1350,7 +1350,7 @@ export class LIFSim {
           if (group >= 0) rates[group] += gain[group] * a;
         }
         for (let i = 0; i < groups.length; i++) cord.setDescendingKey(groups[i].key, rates[i]);
-        cord.step(1);
+        cord.step(1, false);
       }
 
       if (bus) {
@@ -1365,6 +1365,7 @@ export class LIFSim {
         }
       }
     }
+    if (cord) cord.updateMotorCommands();   // the legs read them once per step
     this.lastStepSpikes = stepSpikes;
     this.lastStepDeliveries = stepDeliveries;
     this.lastStepMilliseconds = ms;

@@ -109,3 +109,46 @@ export class AdaptiveRenderQuality {
     return this.pixelRatio;
   }
 }
+
+// When the simulation falls behind real time, the page draws its display
+// views on only every second or third animation frame. Every scene update
+// still runs each frame and the fly's own eye keeps its 20 Hz sampling, so
+// what she sees -- and with it every neural input -- is unchanged; only the
+// observer's picture gets less smooth. On a small integrated-graphics machine
+// the display renderer and the simulation worker share the same cores and
+// power budget, so this gives the neural clock back its real-time pace before
+// the picture loses resolution (AdaptiveRenderQuality).
+export class DisplayPacer {
+  constructor({ maxStride = 3, recoverWindows = 4 } = {}) {
+    this.maxStride = Math.max(1, Math.floor(maxStride));
+    this.recoverWindows = Math.max(1, Math.floor(recoverWindows));
+    this.stride = 1;
+    this.minStride = 1;      // raised while other simulation work needs the cores
+    this.healthyWindows = 0;
+    this.phase = 0;
+  }
+
+  // Once per measurement window (about a second). `simulationRealtime` is
+  // relative to the requested speed and 1 while paused.
+  observe({ simulationRealtime = 1, droppedSecondsPerSecond = 0 } = {}) {
+    const lagging = simulationRealtime < 0.97 || droppedSecondsPerSecond > 0.005;
+    if (lagging) {
+      this.healthyWindows = 0;
+      if (this.stride < this.maxStride) this.stride++;
+      return this.stride = Math.max(this.stride, this.minStride);
+    }
+    const healthy = simulationRealtime >= 0.995 && droppedSecondsPerSecond <= 0.0005;
+    this.healthyWindows = healthy ? this.healthyWindows + 1 : 0;
+    if (this.healthyWindows >= this.recoverWindows && this.stride > 1) {
+      this.stride--;
+      this.healthyWindows = 0;
+    }
+    return this.stride = Math.max(this.stride, this.minStride);
+  }
+
+  // Once per animation frame: whether this frame draws the display views.
+  shouldDraw() {
+    this.phase = (this.phase + 1) % this.stride;
+    return this.phase === 0;
+  }
+}

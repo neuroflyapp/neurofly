@@ -8,6 +8,7 @@ export const specimensPanel = {
   id: 'specimens', icon: 'body', title: '♀ / ♂', short: '♀ / ♂',
   build(ctx) {
     const l = (de, en) => getLanguage() === 'de' ? de : en;
+    const sexSymbol = sex => sex === 'female' ? '♀' : sex === 'male' ? '♂' : '?';
     let disposed = false, generation = 0, bundle = null, selected = -1, catalog = null;
     let incoming = [], outgoing = [], projection = [0, 1], morphology = null, cell = null;
     let cellGeneration = 0, pathGeneration = 0, pathReport = null, searchIndex = [], byId = new Map();
@@ -108,6 +109,13 @@ export const specimensPanel = {
     function draw() {
       const g = canvas.getContext('2d'); g.clearRect(0, 0, canvas.width, canvas.height);
       if (!bundle) return;
+      if (bundle.summary.annotatedRecordsWithPosition === 0) {
+        g.fillStyle = '#a9cdbb'; g.font = '17px sans-serif';
+        g.fillText(l('Keine veröffentlichten Zellkoordinaten in diesem Archiv.', 'No published cell coordinates in this archive.'), 22, 170);
+        g.font = '14px sans-serif';
+        g.fillText(l('Zell- und Pfadsuche funktionieren ohne erfundene Positionen.', 'Cell and path search work without invented positions.'), 22, 198);
+        return;
+      }
       for (let i = 0; i < bundle.neurons.length; i++) {
         const n = bundle.neurons[i];
         if (!n.pos) continue;
@@ -160,9 +168,10 @@ export const specimensPanel = {
       exportButton.disabled = false;
       const n = cell;
       const ins = incoming, outs = outgoing;
+      const reviewed = n.annotations?.reviewedCorrespondences || [];
       const kept = ins.reduce((sum, e) => sum + e[2], 0);
       details.replaceChildren(kv([
-        [l('Tier', 'Specimen'), `${bundle.profile.sex === 'female' ? '♀' : '♂'} ${bundle.profile.name}`],
+        [l('Tier', 'Specimen'), `${sexSymbol(bundle.profile.sex)} ${bundle.profile.name}`],
         ['ID', n.id], [l('Zelltyp', 'Cell type'), n.type], [l('Klasse / Seite', 'Class / side'), `${n.superClass} · ${n.side}`],
         [l('Position verfügbar', 'Position available'), n.pos ? l('Ja', 'Yes') : l('Nein — Zelle bleibt im Netzwerk', 'No — cell retained in network')],
         [l('Transmitter', 'Transmitter'), `${n.nt} (${n.ntEvidence})`],
@@ -170,7 +179,10 @@ export const specimensPanel = {
         [l('Eingehende Kontakte im Ausschnitt', 'Input contacts in subset'), int(kept)],
         [l('Eingehende Kontakte in der Quelle', 'Input contacts in source'), int(n.fullInputContacts)],
         [l('Erhaltener Eingang', 'Retained input'), n.fullInputContacts ? `${num(100 * kept / n.fullInputContacts, 1)}%` : '—'],
-      ]), h('details', {}, h('summary', {}, l('Original-Annotationen', 'Original annotations')),
+      ]), ...(reviewed.length ? [h('details', {}, h('summary', {}, l(`Manuell geprüfte Korrespondenzen (${reviewed.length})`, `Human-reviewed correspondences (${reviewed.length})`)),
+        h('p', { class: 'note' }, l('Vergleichshinweise zwischen Präparaten, keine Synapsen zwischen Tieren und keine identische biologische Zelle. Versionen der Ziel-IDs müssen separat geprüft werden.', 'Comparative links between specimens, not synapses between animals or the same biological cell. Target ID releases require separate verification.')),
+        ...reviewed.map(m => h('p', { class: 'note' }, `${m.targetSpecimen} · ${m.targetId}${m.targetType ? ' · ' + m.targetType : ''}${m.relation === 'within-specimen-mirror' ? l(' · Spiegelpartner', ' · mirror partner') : ''}`)))] : []),
+      h('details', {}, h('summary', {}, l('Original-Annotationen', 'Original annotations')),
         h('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: '10px' } }, JSON.stringify(n.annotations, null, 2))));
       const rows = (edges, endpoint) => edges.slice(0, 8).map(e => {
         const neighbor = bundle.neurons[e[endpoint]];
@@ -223,6 +235,9 @@ export const specimensPanel = {
         const data = await ctx.api.getSpecimenData(id);
         if (disposed || token !== generation) return;
         bundle = data;
+        projectionSelect.disabled = data.summary.annotatedRecordsWithPosition === 0;
+        pathMin.min = String(data.summary.edgeThreshold);
+        pathMin.value = String(data.summary.edgeThreshold);
         searchIndex = data.neurons.map(n => `${n.type} ${n.aliases} ${n.superClass} ${n.id}`.toLowerCase());
         byId = new Map(data.neurons.map((n, i) => [n.id, i]));
         pathButton.disabled = false;
@@ -233,9 +248,22 @@ export const specimensPanel = {
           [l('Gerichtete Zellpaare', 'Directed cell pairs'), int(data.edgeCount)],
           [l('Synaptische Kontakte', 'Synaptic contacts'), int(data.summary.selectedContacts)],
           [l('Mindestzahl Kontakte pro Paar', 'Minimum contacts per pair'), int(data.summary.edgeThreshold)],
-          [l('Koordinaten', 'Coordinates'), data.coordinateSpace],
+          ...(data.summary.selectedMorphometricRows ? [[l('Regionale Morphometrie-Zeilen', 'Regional morphometry rows'), int(data.summary.selectedMorphometricRows)]] : []),
+          ...(data.summary.selectedReviewedCorrespondences ? [[l('Geprüfte Korrespondenzen', 'Reviewed correspondences'), int(data.summary.selectedReviewedCorrespondences)]] : []),
+          ...(data.summary.reviewedRowsWithoutExactTargetId ? [[l('Quellzeilen ohne exakte Ziel-ID', 'Source rows without exact target ID'), int(data.summary.reviewedRowsWithoutExactTargetId)]] : []),
+          [l('Koordinaten', 'Coordinates'), data.profile.id === 'l1em-winding-2023'
+            ? l('Keine Zellkoordinaten im Quellenanhang', 'No cell coordinates in source archive') : data.coordinateSpace],
+          ...(data.profile.sourceRelease ? [[l('Quellversion', 'Source release'), data.profile.id === 'hemibrain-v1.2'
+            ? l('Verbindungen v1.2 · Positionen v1.2.1', 'Connections v1.2 · positions v1.2.1') : data.profile.sourceRelease]] : []),
+          ...(data.summary.sameSampleIdOverlapVerified ? [[l('Mit MaleCNS abgeglichene IDs', 'IDs cross-checked with MaleCNS'), int(data.summary.sameSampleIdOverlapVerified)]] : []),
           ['SHA-256', h('span', { title: data.sha256 }, `${data.sha256.slice(0, 16)}…`)],
-        ]), h('p', { class: 'note' }, l('Auswahl: motorische und absteigende Zellen, benannte Steuerzellen und starke Verbindungspartner. Maximal 6.000 Zellen; kein vollständiges Nervensystem.', 'Selection: motor, descending and named command cells with strong partners. Up to 6,000 cells; not a complete nervous system.')));
+        ]), h('p', { class: 'note' }, data.profile.id === 'l1em-winding-2023'
+          ? l('Larvales Gehirn als nicht-räumlicher Graph: 2.952 Zellen aus dem all-all-Matrixanhang, ohne publizierte Zellkoordinaten oder Transmitter in dieser Datei. Die Teilmatrizen werden nicht addiert. Kein erwachsenes Tier, keine laufende Simulation.', 'Larval brain as a non-spatial graph: 2,952 cells from the all-all matrix supplement, without cell coordinates or transmitters in this archive. Compartment matrices are not added. Not an adult animal or a running simulation.')
+          : data.profile.id === 'hemibrain-v1.2'
+          ? l('Teil eines eigenständigen weiblichen Gehirns: v1.2-Verbindungen und vorhergesagte Transmitter. Soma-Positionen stammen aus ergänzenden v1.2.1-Metadaten und wurden nur über exakte Zell-IDs zugeordnet. Kein vollständiges Tier und keine laufende Simulation.', 'Part of a separate female brain: v1.2 connections and predicted transmitters. Soma positions come from v1.2.1 supplementary metadata joined only by exact cell IDs. Not a complete animal or a running simulation.')
+          : data.profile.id === 'optic-lobe-v1.1'
+          ? l('Eine lokalisierte Zelle je benanntem Typ, dann Zellen mit hohem Quell-Synapsengewicht. Dasselbe männliche Präparat wie MaleCNS, aber eine andere Version: Überlappende Verbindungen werden nicht addiert. Keine laufende Simulation.', 'One located cell per named type, then cells with high source synaptic weight. Same male specimen as MaleCNS, but another release: overlapping connections are not added. Not a running simulation.')
+          : l('Auswahl: motorische und absteigende Zellen, benannte Steuerzellen und starke Verbindungspartner. Maximal 6.000 Zellen; kein vollständiges Nervensystem.', 'Selection: motor, descending and named command cells with strong partners. Up to 6,000 cells; not a complete nervous system.')));
         status.textContent = l('Geprüfte Anatomie geladen · Terrarium unverändert.', 'Verified anatomy loaded · terrarium unchanged.');
         select(Math.max(0, data.neurons.findIndex(n => n.type === 'DNp01'))); search();
       } catch (error) { if (!disposed && token === generation) status.textContent = `${l('Nicht geladen', 'Not loaded')}: ${error.message}`; }
@@ -265,11 +293,12 @@ export const specimensPanel = {
         const report = await ctx.api.getSpecimenPath(bundle.profile.id, { from: pathFrom.value.trim(), to: pathTo.value.trim(), minContacts: Number(pathMin.value), maxHops: Number(pathHops.value) }, bundle.sha256);
         if (disposed || token !== generation || pathToken !== pathGeneration) return;
         pathReport = report; pathExport.disabled = false;
+        const pathCount = `${report.shortestPathCountCapped ? '≥ ' : ''}${int(report.shortestPathCount)}`;
         pathResult.replaceChildren(h('p', { class: 'note' }, report.found
-          ? l(`${report.hops} gerichtete Schritte · ein kürzester Pfad im Ausschnitt.`, `${report.hops} directed hops · one shortest path in the subset.`)
+          ? l(`${report.hops} gerichtete Schritte · ${pathCount} gleich kurze Wege im Ausschnitt (einer gezeigt).`, `${report.hops} directed hops · ${pathCount} equally short paths in the subset (one shown).`)
           : l('Kein Pfad unter diesen Grenzen im Ausschnitt gefunden. Keine Aussage über das vollständige Tier.', 'No path within these bounds in the subset. This does not establish absence in the complete animal.')),
           ...report.neurons.flatMap((n, i) => [h('button', { class: 'btn small', type: 'button', style: { width: '100%', marginBottom: '4px', justifyContent: 'space-between' }, onclick: () => select(byId.get(n.id)) }, n.type, h('small', {}, n.id)),
-            ...(i < report.edges.length ? [h('p', { class: 'note' }, `↓ ${int(report.edges[i].contacts)} ${l('gemessene Kontakte', 'measured contacts')}`)] : [])]));
+            ...(i < report.edges.length ? [h('p', { class: 'note' }, `↓ ${int(report.edges[i].contacts)} ${l('rekonstruierte Kontakte', 'reconstructed contacts')}`)] : [])]));
       } catch (error) { if (!disposed && token === generation && pathToken === pathGeneration) pathResult.textContent = error.message; }
       finally { if (!disposed && token === generation && pathToken === pathGeneration) pathButton.disabled = false; }
     } }, l('Verbindungsweg finden', 'Find connection path'));
@@ -280,7 +309,7 @@ export const specimensPanel = {
       h('div', { class: 'row', style: { flexWrap: 'wrap', margin: '10px 0' } }, h('label', {}, l('Kontakte ≥ ', 'Contacts ≥ '), pathMin), h('label', {}, l('Schritte ≤ ', 'Hops ≤ '), pathHops)),
       pathButton, pathResult, pathExport);
     const el = h('div', { class: 'specimen-panel' }, panelHead(l('Tiere & Daten', 'Specimens & data'), l('Zwei Geschlechter. Getrennte Quellen.', 'Two sexes. Separate sources.'),
-      l('♀ BANC und ♂ MaleCNS besitzen jeweils Gehirn und Nervenstrang desselben Tiers. FAFB bleibt eine zusätzliche weibliche Gehirnreferenz.', 'Female BANC and male MaleCNS each contain brain and nerve cord from one specimen. FAFB remains an additional female brain reference.')),
+      l('♀ BANC und ♂ MaleCNS besitzen jeweils Gehirn und Nervenstrang desselben Tiers. Die männliche Optiklappe ist eine überlappende Version desselben MaleCNS-Präparats. MANC, FAFB und Hemibrain sind unabhängige erwachsene Tiere; L1EM ist eine Larve.', 'Female BANC and male MaleCNS each contain brain and nerve cord from one specimen. The male optic lobe is an overlapping release of the same MaleCNS specimen. MANC, FAFB and Hemibrain are separate adults; L1EM is a larva.')),
       card(l('Was diese Auswahl ändert', 'What this selection changes'), {}, h('p', { class: 'note' },
         l('Hier wählst du die echte Anatomiequelle für Untersuchung und Vergleich. Die laufende Fliege verwendet weiterhin FAFB ♀ + MaleCNS ♂ mit modellierter Kopplung. Die Umschaltung des laufenden Modells ist noch nicht freigegeben: Körperschnittstellen und Verhalten müssen zuerst pro Tier geprüft werden.', 'Choose the real anatomical source for inspection and comparison here. The running fly still uses FAFB ♀ + MaleCNS ♂ with a modelled interface. Switching the live model is not yet enabled: body interfaces and behaviour require specimen-specific validation.'))),
       choices, status, content, card(l('Forschungsbestand & Lücken', 'Research coverage & gaps'), {}, refreshArchive, research), card(l('Import-Checkliste', 'Import checklist'), {}, inventory));
@@ -292,9 +321,9 @@ export const specimensPanel = {
       catalog = value;
       showResearch(value);
       choices.replaceChildren(...value.profiles.map(p => h('button', { type: 'button', class: 'btn', 'data-specimen': p.id, 'data-testid': `choose-${p.id}`, 'aria-pressed': 'false', disabled: p.status !== 'anatomy-ready',
-        title: p.status === 'anatomy-ready' ? p.name : l('Noch nicht importiert', 'Not yet imported'), onclick: () => load(p.id) }, `${p.sex === 'female' ? '♀' : '♂'} ${p.name}`)));
+        title: p.status === 'anatomy-ready' ? p.name : l('Noch nicht importiert', 'Not yet imported'), onclick: () => load(p.id) }, `${sexSymbol(p.sex)} ${p.name}`)));
       inventory.replaceChildren(h('p', { class: 'note' }, `${l('Stand', 'Checked')}: ${value.checkedAt ? new Date(value.checkedAt).toLocaleString() : '—'}`),
-        ...value.profiles.map(p => h('p', {}, `${p.sex === 'female' ? '♀' : '♂'} `, link(p.source, p.name), ` · ${p.status === 'anatomy-ready' ? l('Anatomie integriert', 'Anatomy integrated') : l('Import offen', 'Import pending')} · ${p.license}`)),
+        ...value.profiles.map(p => h('p', {}, `${sexSymbol(p.sex)} `, link(p.source, p.name), ` · ${p.status === 'anatomy-ready' ? l('Anatomie integriert', 'Anatomy integrated') : l('Import offen', 'Import pending')} · ${p.license}`)),
         ...value.files.map(f => h('details', {}, h('summary', {}, `${f.status === 'verified' ? '✓' : '⚠'} ${f.name}`),
           kv([[l('Quelle', 'Source'), f.dataset], [l('Größe', 'Size'), `${num(f.bytes / 1024 ** 2, 1)} MiB`], ['SHA-256', f.sha256 || '—'], [l('Prüfung', 'Check'), f.error || l('Kopie und Prüfsumme erfasst', 'Copy and checksum recorded')]]))),
         h('p', { class: 'note' }, l('Prüfsummen sichern Dateiidentität, nicht biologische Vollständigkeit. Alternative Synapsendetektoren bleiben getrennt. Anatomische Daten belegen kein subjektives Erleben.', 'Checksums establish file identity, not biological completeness. Alternative synapse detections remain separate. Anatomical data do not establish subjective experience.')));

@@ -14,10 +14,29 @@ const index = indexSpecimen(bundle), from = bundle.neurons[0].id, to = bundle.ne
 const path = findSpecimenPath(bundle, index, { from, to });
 assert.equal(path.hops, 2);
 assert.deepEqual(path.edges.map(e => e.contacts), [7, 10]);
+assert.equal(path.shortestPathCount, 2, 'both equally short directed routes are counted');
+assert.equal(path.shortestPathCountCapped, false);
 assert.equal(findSpecimenPath(bundle, index, { from, to, maxHops: 1 }).found, false);
 assert.equal(findSpecimenPath(bundle, index, { from, to, minContacts: 8 }).found, false);
-assert.equal(findSpecimenPath(bundle, index, { from, to: from }).hops, 0);
-assert.equal(findSpecimenPath(bundle, index, { from, to: bundle.neurons[4].id }).found, false);
+assert.equal(findSpecimenPath(bundle, index, { from, to, minContacts: 7 }).shortestPathCount, 1);
+const selfPath = findSpecimenPath(bundle, index, { from, to: from });
+assert.equal(selfPath.hops, 0);
+assert.equal(selfPath.shortestPathCount, 1);
+const absentPath = findSpecimenPath(bundle, index, { from, to: bundle.neurons[4].id });
+assert.equal(absentPath.found, false);
+assert.equal(absentPath.shortestPathCount, 0);
+const layered = { ...bundle, neurons: Array.from({ length: 102 }, (_, i) => ({ id: String(i + 1000), type: 'test', specimen: 'BANC' })), edges: [] };
+for (let i = 1; i <= 10; i++) layered.edges.push([0, i, 5]);
+for (let layer = 0; layer < 9; layer++) {
+  for (let a = 1 + layer * 10; a <= 10 + layer * 10; a++) {
+    for (let b = 11 + layer * 10; b <= 20 + layer * 10; b++) layered.edges.push([a, b, 5]);
+  }
+}
+for (let i = 91; i <= 100; i++) layered.edges.push([i, 101, 5]);
+const manyPaths = findSpecimenPath(layered, indexSpecimen(layered), { from: '1000', to: '1101', maxHops: 11 });
+assert.equal(manyPaths.hops, 11);
+assert.equal(manyPaths.shortestPathCount, 1_000_000_000);
+assert.equal(manyPaths.shortestPathCountCapped, true, 'large multiplicities are lower-bounded, never imprecisely rounded');
 assert.throws(() => findSpecimenPath(bundle, index, { from: Number(from), to }));
 assert.throws(() => findSpecimenPath(bundle, index, { from, to, maxHops: 1000 }));
 assert.throws(() => findSpecimenPath(bundle, index, { from, to, minContacts: 0 }));
@@ -66,7 +85,7 @@ try {
     assert.equal(await service.morphology('10001', 'fafb-v783'), null, 'no skeleton reused across sex/specimen');
   }
   await new Promise(resolve => setTimeout(resolve, 150));
-  assert.equal((await service.catalog()).profiles.length, 3, 'worker reopens after idle eviction');
+  assert.equal((await service.catalog()).profiles.length, 7, 'worker reopens after idle eviction');
 } finally { await service.close(); }
 await assert.rejects(service.catalog(), /closed/);
 console.log('specimenservicetest: PASS — bounded asynchronous service, native paths, stale-data rejection, clock accounting');

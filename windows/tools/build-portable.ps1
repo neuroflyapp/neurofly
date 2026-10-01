@@ -35,10 +35,20 @@ Remove-Item (Join-Path $stage 'resources\default_app.asar') -ErrorAction Silentl
 Rename-Item (Join-Path $stage 'electron.exe') 'NeuroCause.exe'
 Rename-Item (Join-Path $stage 'LICENSE') 'LICENSE.electron.txt'
 
-# The app: tracked files only, private files excluded.
+# The app: tracked files only. Everything marked export-ignore in
+# .gitattributes stays out, so a release ships exactly what the public snapshot
+# shows: no promotional film stages, no local audit snapshots, and no anatomy
+# bundles whose sources publish no explicit licence (see
+# windows/assets/connectomes/README.md; the app lists those as not imported).
 $app = Join-Path $stage 'resources\app'
-$private = @('windows/assets/connectomes/research-inventory.json')
 $files = git -C $root ls-files -- 'windows/main.js' 'windows/preload.cjs' 'windows/renderer' 'windows/src' 'windows/assets' 'data'
+# Paths go in as arguments: piped to --stdin, Windows PowerShell adds a BOM and
+# CR line ends, and git then reads different paths than the ones listed.
+$private = @(git -C $root check-attr export-ignore -- $files |
+  Where-Object { $_ -match ': export-ignore: set$' } | ForEach-Object { ($_ -split ': export-ignore: ')[0] })
+foreach ($must in @('windows/assets/connectomes/hemibrain-v1.2.json', 'windows/assets/connectomes/l1em-winding-2023.json', 'windows/renderer/drop.js')) {
+  if ($private -notcontains $must) { throw "export-ignore lookup failed: $must would ship" }
+}
 foreach ($f in $files) {
   if ($private -contains $f) { continue }
   $rel = if ($f.StartsWith('windows/')) { $f.Substring(8) } else { $f }

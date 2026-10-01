@@ -66,11 +66,14 @@ export const DE = {
 
   // ---- HUD ----
   'Follow cam': 'Folgekamera',
+  'Close cam': 'Nahaufnahme',
+  'Overhead': 'Draufsicht',
   'Overview': 'Übersicht',
-  'Switch between the overview and a camera that follows her': 'Zwischen Übersicht und einer Kamera wechseln, die ihr folgt',
+  'Cycle through overview, follow, close and overhead cameras': 'Zwischen Übersicht, Folgekamera, Nahaufnahme und Draufsicht wechseln',
+  'Reset camera': 'Kamera zurücksetzen',
   'Zoom in': 'Hineinzoomen',
   'Zoom out': 'Herauszoomen',
-  'Drag the fly · move the cursor at her · right-drag to orbit': 'Fliege ziehen · Zeiger auf sie zu bewegen · rechts ziehen zum Drehen',
+  'Drag the fly · right-drag to orbit · Shift+right-drag to pan · wheel to zoom': 'Fliege ziehen · rechts ziehen zum Drehen · Shift+rechts ziehen zum Verschieben · Mausrad zum Zoomen',
   'Temperature where she stands': 'Temperatur an ihrem Standort',
   'Rain': 'Regen',
   'Ice rain': 'Eisregen',
@@ -496,7 +499,7 @@ export const DE = {
   'scent here (no olfactory neurons)': 'Duft hier (keine Riechneuronen)',
   'What she sees — a real render from her head, 64 × 24 samples, 150°': 'Was sie sieht — ein echtes Rendering aus ihrem Kopf, 64 × 24 Bildpunkte, 150°',
   'What reaches LC4/LPLC2 — motion energy after centre-surround': 'Was LC4/LPLC2 erreicht — Bewegungsenergie nach Zentrum-Umfeld-Filter',
-  'Left half: her left eye. Only what lights up on the right drives the looming neurons; broad self-motion is cancelled by the centre-surround stage.': 'Linke Hälfte: ihr linkes Auge. Nur was rechts aufleuchtet, treibt die Annäherungsneuronen; breite Eigenbewegung wird von der Zentrum-Umfeld-Stufe ausgelöscht.',
+  'Left half: her left eye. Only what lights up on the right drives the looming neurons: broad self-motion is cancelled by the centre-surround stage, and an efference copy of her own movement is subtracted as well (model).': 'Linke Hälfte: ihr linkes Auge. Nur was rechts aufleuchtet, treibt die Looming-Neuronen: Breite Eigenbewegung hebt die Zentrum-Umfeld-Stufe auf, und zusätzlich wird eine Efferenzkopie ihrer eigenen Bewegung abgezogen (Modell).',
   'motion energy': 'Bewegungsenergie',
 
   // ---- experiments panel ----
@@ -886,6 +889,11 @@ export const DE = {
   'Performance': 'Leistung',
   'The live fly and experiments use separate worker threads; the display only draws. CPU cores are assigned by the operating system.': 'Live-Fliege und Experimente nutzen getrennte Worker-Threads; die Anzeige zeichnet nur. Die Zuweisung zu Prozessorkernen übernimmt das Betriebssystem.',
   'Display': 'Anzeige',
+  'simulation first': 'Simulation zuerst',
+  'own movement': 'eigene Bewegung',
+  'Run at 0.5×': 'Mit 0,5× laufen lassen',
+  'Measured without gaps on slower computers': 'Auf langsameren Computern gemessen lückenlos',
+  'early vision: motion energy in her rendered eye after a centre-surround stage, minus an efference copy of her own expected self-motion (Kim, Fitzgerald & Maimon 2015), drives the looming neurons': 'frühes Sehen: Die Bewegungsenergie in ihrem gerenderten Auge treibt nach einer Zentrum-Umfeld-Stufe und abzüglich einer Efferenzkopie ihrer eigenen erwarteten Bewegung (Kim, Fitzgerald & Maimon 2015) die Looming-Neuronen',
   'Requested speed': 'Gewünschtes Tempo',
   'Simulation vs real time': 'Simulation gegenüber Echtzeit',
   'Neural core speed': 'Tempo des neuronalen Kerns',
@@ -917,6 +925,8 @@ export const DE = {
   'MaleCNS data': 'MaleCNS-Daten',
   'Website': 'Website',
   'Because the FlyWire data are licensed for non-commercial use, NeuroCause is free and carries no advertising.': 'Weil die FlyWire-Daten nur nicht-kommerziell genutzt werden dürfen, ist NeuroCause kostenlos und werbefrei.',
+  'Supporters of the lab may be invited to try pre-releases before they are public.': 'Wer das Labor unterstützt, kann zu Vorabversionen eingeladen werden, bevor sie öffentlich erscheinen.',
+  'Support NeuroCause': 'NeuroCause unterstützen',
 
   // ---- tags ----
   'model': 'Modell',

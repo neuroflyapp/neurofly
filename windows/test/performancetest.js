@@ -1,6 +1,6 @@
 // performancetest.js -- telemetry must measure, never hide a slow frame.
 
-import { AdaptiveRenderQuality, PerformanceMeter, classifyRunTiming } from '../src/performance.js';
+import { AdaptiveRenderQuality, DisplayPacer, PerformanceMeter, classifyRunTiming } from '../src/performance.js';
 import { buildOutgoingEdgeIndex, sampleVisibleEdges } from '../src/edge-index.js';
 import { SimulationClock } from '../src/sim.js';
 import { ClosedLoop } from '../src/closed-loop.js';
@@ -58,6 +58,41 @@ check('adaptive render quality protects real-time simulation before lowering dis
   const recovered = stable.observe({ fps: 60, simulationRealtime: 1, droppedSecondsPerSecond: 0 });
   return [low < initial && Math.abs(recovered - 1.25) < 1e-10,
     `${initial.toFixed(2)} -> ${low.toFixed(2)} under load; ${recovered.toFixed(2)} after headroom`];
+});
+
+check('display pacing yields frames to a lagging simulation and returns them only after sustained headroom', () => {
+  const pacer = new DisplayPacer({ maxStride: 3, recoverWindows: 4 });
+  const drawn = (frames) => { let d = 0; for (let i = 0; i < frames; i++) if (pacer.shouldDraw()) d++; return d; };
+  const full = drawn(60);
+  const s1 = pacer.observe({ simulationRealtime: 0.8, droppedSecondsPerSecond: 0.1 });
+  const half = drawn(60);
+  const s2 = pacer.observe({ simulationRealtime: 0.9, droppedSecondsPerSecond: 0 });
+  const s3 = pacer.observe({ simulationRealtime: 0.5, droppedSecondsPerSecond: 0.2 });   // capped
+  const third = drawn(60);
+  const held = [1, 2, 3].map(() => pacer.observe({ simulationRealtime: 1, droppedSecondsPerSecond: 0 }));
+  const stepped = pacer.observe({ simulationRealtime: 1, droppedSecondsPerSecond: 0 });
+  const relapse = pacer.observe({ simulationRealtime: 0.95, droppedSecondsPerSecond: 0 });
+  const ok = full === 60 && s1 === 2 && half === 30 && s2 === 3 && s3 === 3 && third === 20
+    && held.every((s) => s === 3) && stepped === 2 && relapse === 3;
+  return [ok, `strides ${s1}/${s2}/${s3}, ${full}/${half}/${third} of 60 frames drawn; recovery after 4 healthy windows to ${stepped}, relapse to ${relapse}`];
+});
+
+check('other simulation work can hold the display at a minimum stride, released afterwards', () => {
+  const pacer = new DisplayPacer({ maxStride: 3, recoverWindows: 4 });
+  pacer.minStride = 3;
+  const held = pacer.observe({ simulationRealtime: 1, droppedSecondsPerSecond: 0 });
+  let drawn = 0; for (let i = 0; i < 60; i++) if (pacer.shouldDraw()) drawn++;
+  pacer.minStride = 1;
+  const steps = []; for (let w = 0; w < 8; w++) steps.push(pacer.observe({ simulationRealtime: 1, droppedSecondsPerSecond: 0 }));
+  const ok = held === 3 && drawn === 20 && steps[3] === 2 && steps[7] === 1;
+  return [ok, `held at ${held} (${drawn}/60 drawn); after release ${steps.join(',')}`];
+});
+
+check('a paused or keeping-pace run draws every frame', () => {
+  const pacer = new DisplayPacer();
+  for (let i = 0; i < 10; i++) pacer.observe({ simulationRealtime: 1, droppedSecondsPerSecond: 0 });
+  let d = 0; for (let i = 0; i < 60; i++) if (pacer.shouldDraw()) d++;
+  return [pacer.stride === 1 && d === 60, `stride ${pacer.stride}, ${d} of 60 frames drawn`];
 });
 
 check('run timing separates pauses, measurement, slow execution and missing simulation time', () => {

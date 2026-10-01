@@ -13,6 +13,9 @@
 import { resetRandom } from './random.js';
 import { World } from '../src/world.js';
 import { Fly } from '../src/flymodel.js';
+import * as THREE from '../node_modules/three/build/three.module.js';
+import { overviewDistance } from '../renderer/view/terrarium.js';
+import { DISPLAY_LAYER } from '../src/world.js';
 
 const bounds = { width: 1512, height: 982 };
 const dt = 1 / 120;
@@ -55,16 +58,68 @@ function check(name, fn) {
     const c = ground(54321, 0.01);
     check('ground pixels follow the layout seed, not the renderer RNG', () =>
       [a === b && a !== c, `same seed equal=${a === b}, changed seed differs=${a !== c}`]);
+    const dressed = new World(bounds, { layout: { landscapeSeed: 12345, objects: [] }, merge: true });
+    const eye = new THREE.Layers(); eye.set(0);
+    const ornaments = [];
+    dressed._landscape.traverse((o) => { if (o.isMesh && o.layers.isEnabled(DISPLAY_LAYER)) ornaments.push(o); });
+    const cabinet = [];
+    dressed._cabinet.traverse((o) => { if (o.isMesh) cabinet.push(o); });
+    check('observer-only scenery cannot enter the fly eye or shadow map after batching', () => [
+      ornaments.length > 0 && cabinet.length > 0 && [...ornaments, ...cabinet].every((o) => !o.layers.test(eye) && !o.castShadow),
+      `${ornaments.length} ornament meshes, ${cabinet.length} cabinet meshes excluded`,
+    ]);
+    let geometryDisposed = false, textureDisposed = false;
+    dressed._ground.geometry.dispose = () => { geometryDisposed = true; };
+    dressed._ground.material.map.dispose = () => { textureDisposed = true; };
+    dressed.resize({ width: 1200, height: 800 });
+    check('resizing releases replaced terrarium geometry and ground texture', () => [
+      geometryDisposed && textureDisposed, `geometry=${geometryDisposed}, texture=${textureDisposed}`,
+    ]);
   } finally {
     globalThis.document = previousDocument;
     Math.random = previousRandom;
   }
 }
 
+for (const [w, h, azimuth, elevation] of [[1512, 982, 0.42, 0.68], [550, 920, 1.3, 0.36], [1600, 540, -0.7, 1.2]]) {
+  const aspect = w / h, fov = 42;
+  const distance = overviewDistance({ width: w, height: h }, fov, aspect, azimuth, elevation);
+  const camera = new THREE.PerspectiveCamera(fov, aspect, 8, 6000);
+  camera.up.set(0, 0, 1);
+  camera.position.set(distance * Math.cos(elevation) * Math.sin(azimuth),
+    -distance * Math.cos(elevation) * Math.cos(azimuth), distance * Math.sin(elevation) + 10);
+  camera.lookAt(0, 0, 10);
+  camera.updateMatrixWorld(true);
+  let outside = 0;
+  for (const x of [-w / 2 - 8, w / 2 + 8]) for (const y of [-h / 2 - 8, h / 2 + 8]) for (const z of [0, 58]) {
+    const p = new THREE.Vector3(x, y, z).project(camera);
+    if (Math.abs(p.x) > 1 || Math.abs(p.y) > 1 || p.z > 1) outside++;
+  }
+  check(`overview fits tank corners at ${w}×${h}`, () => [outside === 0, `${outside} corners clipped`]);
+}
+
 // ---- a freshly spawned fly should never land inside an existing object ----
 resetRandom('worldtest-spawn');
 {
   const world = new World(bounds);
+  const sapling = world.objects.find((o) => o.kind === 'sapling');
+  check('a tall sapling keeps its rendered height in the contact model', () => [
+    sapling && sapling.topZ > sapling.radius * 1.8,
+    `top=${sapling?.topZ.toFixed(1)}, footprint radius=${sapling?.radius.toFixed(1)}`,
+  ]);
+  if (sapling) {
+    const testFly = { pos: { x: sapling.pos.x + 1, y: sapling.pos.y }, heading: 0,
+      node: { position: { z: sapling.topZ - 1 }, scale: { x: 1 } } };
+    world.collide(testFly);
+    const pushedBelowTop = testFly.pos.x > sapling.pos.x + 1;
+    testFly.pos.x = sapling.pos.x + 1;
+    testFly.node.position.z = sapling.topZ + 1;
+    world.collide(testFly);
+    check('sapling blocks below its canopy but clears above it', () => [
+      pushedBelowTop && testFly.pos.x === sapling.pos.x + 1,
+      `below=${pushedBelowTop}, above-clear=${testFly.pos.x === sapling.pos.x + 1}`,
+    ]);
+  }
   const trials = 500;
   let overlaps = 0;
   for (let i = 0; i < trials; i++) {

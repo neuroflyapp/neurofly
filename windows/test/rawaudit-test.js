@@ -4,10 +4,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { validateRawSourceAudit } from '../src/raw-source-audit.js';
 import { createSpecimenStore } from '../src/specimen-data.js';
+import { RESEARCH_COVERAGE } from '../src/research-coverage.js';
 
 const ids = ['banc-v888', 'malecns-v1', 'manc-v1.0', 'hemibrain-v1.2', 'optic-lobe-v1.1'];
 const sexes = ['female', 'male', 'male', 'female', 'male'];
 const anatomy = ['brain-and-nerve-cord', 'brain-and-nerve-cord', 'nerve-cord', 'partial-brain', 'right-optic-lobe'];
+for (const id of ids) {
+  const entry = RESEARCH_COVERAGE.datasets.find(d => d.id === id);
+  assert.ok(entry, `audited source ${id} must be identifiable in the research catalog`);
+  assert.notEqual(entry.status, 'anatomy-ready', 'raw tables cannot silently become a simulated animal');
+}
 const sample = { schema: 'neurofly-raw-audit/1', checkedAt: '2026-09-27T12:00:00Z',
   checksumBasis: 'previously-recorded-local-sha256', publisherAuthenticated: false, worldwideComplete: false, runtimeModified: false,
   verifiedFiles: 5, verifiedBytes: 50, status: 'verified',

@@ -23,7 +23,7 @@ The fly's behaviour is not animated. It falls out of a leaky integrate-and-fire
 | Brain | 7,270 FlyWire FAFB v783 neurons, 784,219 signed synapse-count connections: a 6,338-neuron escape/steering subgraph, 16 thermosensors with 52 relays, and the taste (sugar/water, bitter → proboscis) and antennal-grooming (JO-F → DNg12) pathways |
 | Nerve cord | 1,045 MaleCNS v1.0 neurons for walking, with leg-specific motor and sensory channels and feedback |
 | Timestep | 1 ms neural integration; the full sensing → neurons → body → feedback loop at 120 Hz, in a Web Worker |
-| Anatomy explorer | female BANC v888 and male MaleCNS v1.0 (brain + nerve cord each) and FAFB v783, browsable separately |
+| Anatomy explorer | female BANC v888 and male MaleCNS v1.0 (brain + nerve cord each), the male MANC v1.0 nerve cord, the male optic lobe v1.1 and FAFB v783 — each a separate specimen, browsable as anatomy, never wired into another |
 
 A looming object drives the real LC4/LPLC2 populations, which drive the real
 giant fiber DNp01, which triggers takeoff. Wind reaches only the
@@ -64,8 +64,7 @@ corrections log of claims that were measured and then had to be withdrawn.
 
 The portable build for Windows 10 and 11 (64-bit) is on the
 [releases page](https://github.com/neuroflyapp/neurofly/releases/latest): unzip
-it anywhere and start `NeuroCause.exe` (releases up to 2.2.0 carry the
-project's former name); nothing is installed. The build is not code-signed
+it anywhere and start `NeuroCause.exe`; nothing is installed. The build is not code-signed
 yet, so Windows may warn on first start (More info → Run anyway). By
 downloading you accept the [software terms](https://neuro-cause.com/software-terms.html).
 
@@ -108,8 +107,8 @@ permitted; commercial use needs a licence from NeuroCause
 is listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 The bundled neural data is licensed separately and requires attribution:
-FlyWire FAFB v783 under **CC BY-NC 4.0** (non-commercial), MaleCNS v1.0 and
-BANC v888 under **CC BY 4.0**. See [`data/DATA_LICENSE.md`](data/DATA_LICENSE.md),
+FlyWire FAFB v783 under **CC BY-NC 4.0** (non-commercial); MaleCNS v1.0, the
+male optic lobe v1.1, MANC v1.0 and BANC v888 under **CC BY 4.0**. See [`data/DATA_LICENSE.md`](data/DATA_LICENSE.md),
 [`data/LOCOMOTOR_PROVENANCE.md`](data/LOCOMOTOR_PROVENANCE.md) and
 [`windows/assets/connectomes/README.md`](windows/assets/connectomes/README.md).
 Because of the non-commercial data licence, NeuroCause is free and stays free.

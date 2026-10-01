@@ -12,10 +12,18 @@ function labFor(ctx) {
   if (ctx.lab) return ctx.lab;
   const worker = new Worker(new URL('../lab-worker.js', import.meta.url), { type: 'module' });
   const lab = { worker, ready: null, runs: new Map(), current: null };
+  // While an assay runs the live display draws only every third frame: the
+  // lab worker shares the cores and the integrated GPU's power budget with it.
+  // Measured on the reference machine (60 s simulated, alternating runs):
+  // under load 55.2/61.8 -> 42.3/54.0 s wall time and the live fly's dropped
+  // time 7.2/7.5 -> 0.8/4.7 s; under light load about 0-10% faster. Scene
+  // updates and the live fly's eye are unaffected (DisplayPacer).
+  lab.yieldDisplay = (on) => { if (ctx.pacer) ctx.pacer.minStride = on ? 3 : 1; };
   lab.ready = new Promise((resolve) => {
     worker.onmessage = (e) => {
       const m = e.data;
       if (m.type === 'ready') { resolve(); return; }
+      if (m.type === 'result' || m.type === 'cancelled' || m.type === 'failed') lab.yieldDisplay(false);
       const run = lab.runs.get(m.runId);
       if (!run) return;
       const st = ctx.state.experiments.get(run.protocolId) || {};
@@ -27,7 +35,7 @@ function labFor(ctx) {
       for (const fn of ctx.experimentListeners ?? []) fn();
     };
   });
-  worker.postMessage({ type: 'init', data: ctx.data });
+  worker.postMessage(ctx.dataText ? { type: 'init', dataText: ctx.dataText } : { type: 'init', data: ctx.data });
   ctx.lab = lab;
   return lab;
 }
@@ -43,6 +51,7 @@ export async function runExperiment(ctx, protocolId, params = {}) {
   lab.current = runId;
   ctx.state.experiments.set(protocolId, { status: 'running', fraction: 0, eta: null, seed });
   for (const fn of ctx.experimentListeners ?? []) fn();
+  lab.yieldDisplay(true);
   lab.worker.postMessage({ type: 'run', runId, protocolId, params, seed });
 }
 

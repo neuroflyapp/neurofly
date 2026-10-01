@@ -134,11 +134,22 @@ export function buildInspector(ctx) {
         h('br'), h('br'), t('Try: move the cursor quickly at her, or press L.')));
       return;
     }
-    els.list.replaceChildren(...events.slice().reverse().map((e) => {
+    // Spontaneous repeats (same kind, no external trigger, nothing in between)
+    // share one card, so a run of leg-rubbing bouts does not push the events a
+    // stimulus caused out of view; each triggered event keeps its own card.
+    // The recorded events themselves are untouched.
+    const groups = [];
+    for (const e of events.slice().reverse()) {
+      const last = groups[groups.length - 1];
+      if (last && !e.trigger && !last.e.trigger && last.e.kind === e.kind) { last.count++; last.oldest = e.t; continue; }
+      groups.push({ e, count: 1, oldest: e.t });
+    }
+    els.list.replaceChildren(...groups.map(({ e, count, oldest }) => {
       const info = EVENT_INFO[e.kind] ?? { label: e.kind, icon: 'spark' };
       const open = e._id === openId;
+      const when = count > 1 ? `×${count} · ${num(oldest, 1)}–${num(e.t, 1)} s` : `${num(e.t, 1)} s`;
       const card = h('div', { class: `event ${open ? 'open' : ''}` },
-        h('div', { class: 'event-head' }, h('span', { class: 'glyph' }, icon(info.icon, 16)), h('b', {}, t(info.label)), h('small', {}, `${num(e.t, 1)} s`)),
+        h('div', { class: 'event-head' }, h('span', { class: 'glyph' }, icon(info.icon, 16)), h('b', {}, t(info.label)), h('small', {}, when)),
         h('div', { class: 'event-sub' }, e.trigger ? t(TRIGGER_INFO[e.trigger.channel] ?? e.trigger.label) : t('No external trigger')),
         open ? h('div', { class: 'chain' }, ...chainFor(e)) : null);
       card.addEventListener('click', () => {

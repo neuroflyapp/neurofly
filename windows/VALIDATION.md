@@ -1,13 +1,87 @@
-# Windows NeuroFly — Validation & Reality Check
+# NeuroCause fly model — Validation & Reality Check
 
-Living document, last verified 27 September 2026 (private changes after release 2.2.0) against the
+Living document, last verified 1 October 2026 (release 2.3.0) against the
 state of this branch. It states plainly what this connectome-driven simulation actually
 demonstrates and what it only models. It supplements, not
 replaces, the per-feature honesty comments already inline in the source
 (`app.js`, `world.js`, `sim.js`, `locomotor.js`) — this document indexes and
 cross-checks them, it isn't the primary source of truth; the code is.
 
-## Private working changes (27 September 2026; not released)
+## Release 2.3.0 (1 October 2026): changes of 30 September 2026
+
+- **The idle live fly no longer takes off every two seconds.** In the app,
+  untouched for 30 s on the 4-core test machine, she made 13-14 takeoffs;
+  after the three corrections below, none (12 grooming bouts, 3 backward
+  walks, 1 spontaneous flight). Headless suites were blind to it: they run
+  without the rendered eye and the operating-system senses.
+  1. The `typing` ambient sense was tonic: the idle timer counts every mouse
+     movement, so anyone using the computer fed near-field sound 0.3 into
+     JO-A/B continuously. It is now one brief disturbance when input resumes
+     after 8 s of quiet (`InputDisturbance`, `environmenttest`).
+  2. The world model's looming ignored object size (a small firefly closing
+     at moderate speed read as a full-strength threat) and treated a firefly
+     hovering at height 26 as level with a grounded fly. It is now the
+     silhouette's angular expansion rate, 2rv/(d²+r²), over the real 3D
+     distance; and a nearby still object's peripheral cue is capped at 0.06
+     instead of 0.16, which lay above the escape threshold (~0.14).
+     Headless at 02:00 with the fireflies active (seeds 11/101/7, 60 s
+     untouched, no rendered eye): 4 looming takeoffs and a world looming
+     input up to 0.72 with the former term, none and at most 0.045 now.
+  3. The rendered eye's self-motion residual had drifted above its
+     calibration with the refined terrarium (walking raw p50 0.018, p90
+     0.033, p99 0.057; 19% of walking samples crossed threshold). A modelled
+     efference copy (Kim, Fitzgerald & Maimon 2015) subtracts the measured
+     residual: 0.04 while moving on the ground, 0.09 in flight, decaying
+     over 150 ms. Pointer and experimenter looming do not pass through the
+     eye and are unchanged; an approaching object (0.05-0.2) still escapes.
+- **Display pacing keeps the neural clock at real time.** In the app the
+  simulation worker computed only 1.0-1.2 simulated seconds per compute
+  second (headless 2.3-2.8): display rendering and the worker share the
+  cores and the integrated GPU's power budget. When the neural pace falls
+  below 97% of the requested speed, the page now draws its display views on
+  every second or third frame (`DisplayPacer`); scene updates and the eye's
+  20 Hz sampling still run every frame, so the fly's input is unchanged.
+  Idle Live workspace after warm-up: 0.76/0.77/0.90x neural pace before,
+  0.95/0.97/0.97x after (10 s windows); the Electron smoke window rose from
+  1.78 s to 2.58 s of neural time in 3 s. The Model workspace shows
+  "simulation first" while the display is paced.
+- **Assays yield the display while they run.** The lab worker shares the
+  cores and the GPU's power budget with the live display, so while an assay
+  runs the display draws every third frame (`DisplayPacer.minStride`).
+  Alternating runs of a 60-s assay under load: 55.2/61.8 s -> 42.3/54.0 s
+  wall time, live dropped time 7.2/7.5 -> 0.8/4.7 s; under light load
+  about 0-10% faster. Pausing the live fly instead gained only ~5%.
+- **Slower paces are gap-free research modes on the reference machine.**
+  In the app (idle Live workspace, three 10 s windows after warm-up):
+  requested 0.25x ran at 0.250/0.250/0.251x and 0.5x at 0.497/0.497/0.500x,
+  with 0.000 s/s of dropped simulation time in every window and the
+  display at up to 53-54 fps. Runs whose timing matters can be made there.
+- **No lost neural time at start-up.** The first seconds of every session
+  dropped ~0.2-0.5 s of neural time (the Model workspace then flagged the
+  fly as having gaps): not shader compilation (starting the clock after
+  the first drawn frames made it worse, 0.63 s) but JIT warm-up of the
+  simulation code. While the page builds its views, the worker now runs a
+  throwaway loop for one simulated second; the live state after 5 s is
+  bit-identical with and without it. First 3.3-3.5 s after the start: 0.456 s
+  dropped before, 0.000 and 0.002 s in two runs after.
+- **Start-up 2.3 s faster.** The brain bundle crossed from the main process
+  into the page and on to both simulation workers by structured cloning of
+  ~800,000 small edge arrays, several seconds per copy on the 4-core test
+  machine. It now travels as one JSON string (serialized once in the main
+  process; `JSON.parse` rebuilds identical values, checked by a round trip).
+  Page-relative start-up marks (`window.__nf.bootTimings` in debug): bundle in
+  the page 3.73 -> 1.60 s, simulation worker ready 5.28 -> 2.89 s, first
+  simulation frame 7.07 -> 4.78 s. The first render with a cold shader cache
+  still takes ~1.2 s.
+- The nerve cord computes its leg motor commands once per body step instead
+  of every millisecond, without allocating closures (bit-identical: neural
+  fingerprints `c5580b5c`/`e979c8d5`, closed-loop `2abf60ad`/`84eb4bc8`/
+  `757363ac` unchanged). Profiled, the brain step itself (7.6k synaptic
+  deliveries and two passes over 7,270 cells per millisecond) runs close to
+  what scalar JavaScript achieves on this processor; splitting it into
+  kernels gave no measurable gain and was not kept.
+
+## Release 2.3.0: changes of 27 September 2026
 
 - The selected new raw-source manifests and three MaleCNS source files were
   checked against previously recorded local SHA-256 values: 27 files,
@@ -696,6 +770,14 @@ above: **an instrument may read the simulation, never write to it.**
 Kept deliberately: an over-tuned parameter, or a result that turns out to rest
 on the wrong mechanism, is worth recording rather than quietly rewriting away.
 
+- **A resting fly fled her own footsteps (30 September 2026).** Three
+  independent causes kept the live fly taking off every few seconds with
+  nothing approaching: the computer-use sense was tonic sound, world looming
+  ignored object size and height, and the eye's walking residual had crept
+  over threshold after the terrarium was refined. Details and measurements:
+  "Release 2.3.0 (1 October 2026)" above. The lesson: every
+  change to what the rendered eye sees needs the in-app idle check
+  (untouched 30 s, count takeoffs), not only the headless suites.
 - **The "sensory" channel was the antenna's hearing neurons.** The 199 sensory
   partners in `circuit.json` carry only their FlyWire super_class, so the
   model treated them as a generic touch/wind/odour/"pain" population — and

@@ -1,12 +1,15 @@
-// world.js — the terrarium the fly actually lives in: a textured ground with
-// three low hills and a pond, low glass-look walls at the window edge, a
-// dense (~50 object) scatter (rocks, pebbles, mushrooms, logs, stumps,
-// bushes, twigs, fallen branches, flowers, berry clusters, ferns, leaves,
-// grass, moss patches, puddles) and two wandering fireflies, dimmer by day
-// than by night on the real system clock (see World.fireflyActivity — a
-// real, honest crepuscular/nocturnal firefly behavior, not tied to the
-// fly's own neurons). Objects can be dragged by the user (see app.js's
-// pointer handlers); the fly can be grabbed and flicked away.
+// world.js — the terrarium the fly actually lives in: a leaf-litter floor,
+// low hills, a pond with a sandy shore, a glass tank with a metal rim, a
+// dense scatter (rocks, pebbles, mushrooms, logs, stumps, bushes, twigs,
+// fallen branches, flowers, berries, ferns, leaves, grass, moss, puddles,
+// a sapling, a pinecone, cattails, a shell) and two wandering fireflies,
+// dimmer by day than by night on the real system clock (see
+// World.fireflyActivity — honest crepuscular/nocturnal firefly behavior,
+// not tied to the fly's own neurons). Extra ground cover in the landscape
+// group is observer-only: it does not add collision or visual stimuli. The
+// slim outer frame also sits on DISPLAY_LAYER so the fly's own eye never
+// sees that furniture. Objects can be dragged; the fly can be
+// grabbed and flicked away.
 //
 // There is no connectome pathway for "food" or "light attraction" in the
 // real FlyWire circuit sim.js loads — it is an escape/steering circuit
@@ -33,6 +36,15 @@ import { mat, SHADOWS_ENABLED, FLY_SCALE, ANTENNA_LOCAL } from './flymodel.js';
 let R = () => random();
 // Time constant (s) with which a firefly steers onto a new course (modelled).
 const FIREFLY_TURN_S = 0.35;
+// Looming from the world model (not the rendered eye), modelled: the angular
+// expansion rate (rad/s) that counts as a full-strength looming stimulus, and
+// the ceiling of the small peripheral cue a nearby, unmoving object gives.
+// The cue stays well below the escape pathway's threshold (~0.14; experiment
+// 'escape-threshold'): at its former 0.16 a fly standing beside a pebble was
+// driven past threshold and took off with nothing moving.
+const LOOM_FULL_EXPANSION = 6;
+const STATIC_CUE_MAX = 0.06;
+const staticCue = (near) => clampf((35 - near) / 35, 0, 1) ** 2 * STATIC_CUE_MAX;
 const rnd = (lo, hi) => lo + R() * (hi - lo);
 function seededRandom(seed) {
   let state = (seed >>> 0) || 0x9e3779b9;
@@ -59,6 +71,52 @@ export const FLY_TOUCH_RADIUS = 15;
 // few seconds, not a continuous glow — see World.prototype.update.
 const FLASH_DURATION = 0.35;
 
+// Observer-only furniture (cabinet, outer frame). The fly's eye camera
+// stays on layer 0; the user's camera enables this layer. Lights must
+// enable it too or the cabinet would render unlit.
+export const DISPLAY_LAYER = 2;
+
+function markDisplayOnly(root) {
+  root.traverse((o) => {
+    o.layers.set(DISPLAY_LAYER);
+    // Shadow maps are shared between observer and eye passes. Decorative
+    // furniture must not cast a shadow that the eye could read as a stimulus.
+    if (o.isMesh) o.castShadow = false;
+  });
+  return root;
+}
+
+function disposeTree(root) {
+  if (!root) return;
+  const geometries = new Set(), materials = new Set(), textures = new Set();
+  root.traverse((o) => {
+    if (o.geometry) geometries.add(o.geometry);
+    for (const m of Array.isArray(o.material) ? o.material : o.material ? [o.material] : []) {
+      materials.add(m);
+      if (m.map) textures.add(m.map);
+    }
+  });
+  for (const g of geometries) g.dispose();
+  for (const m of materials) m.dispose();
+  for (const t of textures) t.dispose();
+}
+
+function displaceSphere(geo, squashZ, amount) {
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const s = 1 + rnd(-amount, amount);
+    pos.setXYZ(i, pos.getX(i) * s, pos.getY(i) * s, pos.getZ(i) * s * squashZ);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function renderedTop(mesh, fallback) {
+  mesh.updateMatrixWorld(true);
+  const top = new THREE.Box3().setFromObject(mesh).max.z;
+  return Number.isFinite(top) ? Math.max(0, top) : fallback;
+}
+
 // ---- ground, walls, landscape dressing ----
 
 function makeGroundTexture() {
@@ -67,25 +125,55 @@ function makeGroundTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = size; canvas.height = size;
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#3b2c1c';
+  ctx.fillStyle = '#2c2116';
   ctx.fillRect(0, 0, size, size);
-  for (let i = 0; i < 1100; i++) {
+  // Broad soil and moss beds. Only fillRect / ellipse / arc: the layout-seed
+  // regression mock in worldtest implements those canvas calls and no others.
+  for (let i = 0; i < 420; i++) {
     const x = R() * size, y = R() * size;
-    const r = 2 + R() * 7;
-    const grassy = R() < 0.55;
+    const r = 10 + R() * 28;
+    const moss = R() < 0.42;
+    ctx.fillStyle = moss
+      ? `rgba(${38 + rnd(0, 28) | 0}, ${72 + rnd(0, 50) | 0}, ${24 + rnd(0, 22) | 0}, 0.38)`
+      : `rgba(${52 + rnd(0, 36) | 0}, ${36 + rnd(0, 22) | 0}, ${18 + rnd(0, 14) | 0}, 0.55)`;
+    ctx.beginPath();
+    ctx.ellipse(x, y, r, r * rnd(0.45, 0.85), rnd(0, Math.PI), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  for (let i = 0; i < 900; i++) {
+    const x = R() * size, y = R() * size;
+    const r = 2 + R() * 8;
+    const grassy = R() < 0.58;
     ctx.fillStyle = grassy
-      ? `rgba(${60 + rnd(0, 40) | 0}, ${92 + rnd(0, 50) | 0}, ${30 + rnd(0, 25) | 0}, 0.5)`
-      : `rgba(${46 + rnd(0, 30) | 0}, ${33 + rnd(0, 20) | 0}, ${18 + rnd(0, 15) | 0}, 0.6)`;
+      ? `rgba(${60 + rnd(0, 40) | 0}, ${92 + rnd(0, 50) | 0}, ${30 + rnd(0, 25) | 0}, 0.48)`
+      : `rgba(${46 + rnd(0, 30) | 0}, ${33 + rnd(0, 20) | 0}, ${18 + rnd(0, 15) | 0}, 0.58)`;
     ctx.beginPath();
     ctx.ellipse(x, y, r, r * 0.6, rnd(0, Math.PI), 0, Math.PI * 2);
     ctx.fill();
   }
-  // fine grit/debris speckle on top — small pale flecks that break up the
-  // large ellipses at close camera range (purely a texture-quality pass,
-  // same ground plane and physics as before).
-  for (let i = 0; i < 500; i++) {
+  // Damp hollows and pale sand fans.
+  for (let i = 0; i < 70; i++) {
     const x = R() * size, y = R() * size;
-    const r = 0.6 + R() * 1.6;
+    const r = 6 + R() * 16;
+    const wet = R() < 0.55;
+    ctx.fillStyle = wet
+      ? `rgba(${28 + rnd(0, 14) | 0}, ${36 + rnd(0, 18) | 0}, ${22 + rnd(0, 12) | 0}, 0.32)`
+      : `rgba(${140 + rnd(0, 40) | 0}, ${118 + rnd(0, 28) | 0}, ${72 + rnd(0, 22) | 0}, 0.22)`;
+    ctx.beginPath();
+    ctx.ellipse(x, y, r, r * rnd(0.4, 0.75), rnd(0, Math.PI), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Leaf-litter flakes and grit at close camera range.
+  for (let i = 0; i < 280; i++) {
+    const x = R() * size, y = R() * size;
+    ctx.fillStyle = `rgba(${90 + rnd(0, 70) | 0}, ${62 + rnd(0, 40) | 0}, ${28 + rnd(0, 22) | 0}, 0.4)`;
+    ctx.beginPath();
+    ctx.ellipse(x, y, 1.4 + R() * 3.2, 0.6 + R() * 1.4, rnd(0, Math.PI), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  for (let i = 0; i < 700; i++) {
+    const x = R() * size, y = R() * size;
+    const r = 0.5 + R() * 1.7;
     ctx.fillStyle = `rgba(${90 + rnd(0, 50) | 0}, ${80 + rnd(0, 45) | 0}, ${60 + rnd(0, 35) | 0}, 0.35)`;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -95,12 +183,15 @@ function makeGroundTexture() {
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
   return tex;
 }
 
 function makeGround(bounds, landscapeSeed) {
   const w = bounds.width + 500, h = bounds.height + 500;
-  const material = mat(0x3b2c1c, 0.05, 0.04);
+  // MeshPhong multiplies map RGB by material RGB. Using the same dark soil
+  // tone for both crushed the floor nearly to black even in daylight.
+  const material = mat(0xa89b84, 0.06, 0.05);
   // The ground can enter the fly's rendered eye. Rebuild exactly the same
   // pattern from the layout seed, independently of the simulation RNG and
   // of how often the renderer resizes the world.
@@ -117,11 +208,12 @@ function makeGround(bounds, landscapeSeed) {
 
 function makeWalls(bounds) {
   const group = new THREE.Group();
-  const h = 34, th = 8;
+  const h = 52, th = 5;
   const wallMat = new THREE.MeshPhongMaterial({
-    color: 0x8fd6c8, transparent: true, opacity: 0.16,
-    specular: new THREE.Color(0.4, 0.4, 0.4), shininess: 60,
+    color: 0xb7e8dc, transparent: true, opacity: 0.11,
+    specular: new THREE.Color(0.55, 0.62, 0.6), shininess: 90,
   });
+  const rimMat = mat(0x1c2422, 0.28, 0.22);
   const hw = bounds.width / 2, hh = bounds.height / 2;
   const specs = [
     [bounds.width + th, th, 0, hh],
@@ -133,8 +225,49 @@ function makeWalls(bounds) {
     const wall = new THREE.Mesh(new THREE.BoxGeometry(w, d, h), wallMat);
     wall.position.set(x, y, h / 2 - 1);
     group.add(wall);
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(w + 4, d + 3, 3.2), rimMat);
+    rail.position.set(x, y, h - 0.4);
+    rail.castShadow = SHADOWS_ENABLED;
+    group.add(rail);
+    const base = new THREE.Mesh(new THREE.BoxGeometry(w + 4, d + 3, 4.5), rimMat);
+    base.position.set(x, y, 1.4);
+    group.add(base);
   }
+  const post = (x, y) => {
+    const p = new THREE.Mesh(new THREE.BoxGeometry(7, 7, h + 6), rimMat);
+    p.position.set(x, y, (h + 6) / 2 - 1);
+    p.castShadow = SHADOWS_ENABLED;
+    group.add(p);
+  };
+  post(hw, hh); post(hw, -hh); post(-hw, hh); post(-hw, -hh);
   return group;
+}
+
+function makeCabinet(bounds) {
+  const group = new THREE.Group();
+  const frame = mat(0x17211e, 0.18, 0.16);
+  const edge = mat(0x176b37, 0.14, 0.22);
+  const stage = mat(0x111a18, 0.04, 0.02);
+  const w = bounds.width, d = bounds.height, rim = 22;
+  // A solid slab above z=-0.55 obscured the entire ground texture in the
+  // observer camera. Four narrow outside rails leave the habitat uncovered.
+  for (const side of [-1, 1]) {
+    // Hide the extra ground outside the simulated tank from the observer.
+    // That ground remains available to the fly's eye behind the glass.
+    const surround = 260;
+    const backdrop = new THREE.Mesh(new THREE.BoxGeometry(w + 2 * surround, surround, 2), stage);
+    backdrop.position.set(0, side * (d / 2 + surround / 2), -0.25);
+    const flank = new THREE.Mesh(new THREE.BoxGeometry(surround, d, 2), stage);
+    flank.position.set(side * (w / 2 + surround / 2), 0, -0.25);
+    const horizontal = new THREE.Mesh(new THREE.BoxGeometry(w + rim * 2, rim, 8), frame);
+    horizontal.position.set(0, side * (d / 2 + rim / 2), -2.5);
+    const vertical = new THREE.Mesh(new THREE.BoxGeometry(rim, d, 8), frame);
+    vertical.position.set(side * (w / 2 + rim / 2), 0, -2.5);
+    const glint = new THREE.Mesh(new THREE.BoxGeometry(w + rim * 2, 1.2, 1.2), edge);
+    glint.position.set(0, side * (d / 2 + 4), 1.9);
+    group.add(backdrop, flank, horizontal, vertical, glint);
+  }
+  return markDisplayOnly(group);
 }
 
 // A shallow polar cap of a sphere makes a gentle hill; thetaLength controls
@@ -142,9 +275,9 @@ function makeWalls(bounds) {
 // re-points the geometry's default +Y pole to world-up +Z (see the mushroom
 // cap below — same trick, same sign).
 function buildMound(radius, thetaLength, color) {
-  const mesh = new THREE.Mesh(
-    new THREE.SphereGeometry(radius, 24, 10, 0, Math.PI * 2, 0, thetaLength),
-    mat(color, 0.04, 0.03));
+  const geo = new THREE.SphereGeometry(radius, 28, 12, 0, Math.PI * 2, 0, thetaLength);
+  displaceSphere(geo, 1, 0.07);
+  const mesh = new THREE.Mesh(geo, mat(color, 0.05, 0.04));
   mesh.rotation.x = Math.PI / 2;
   mesh.receiveShadow = SHADOWS_ENABLED;
   return mesh;
@@ -152,10 +285,10 @@ function buildMound(radius, thetaLength, color) {
 
 function buildPond(radius) {
   const mesh = new THREE.Mesh(
-    new THREE.CircleGeometry(radius, 28),
+    new THREE.CircleGeometry(radius, 36),
     new THREE.MeshPhongMaterial({
-      color: 0x2c5c66, specular: new THREE.Color(0.7, 0.7, 0.7), shininess: 90,
-      transparent: true, opacity: 0.88,
+      color: 0x245864, specular: new THREE.Color(0.78, 0.86, 0.84), shininess: 120,
+      transparent: true, opacity: 0.9,
     }));
   mesh.position.z = 0.05;
   return mesh;
@@ -164,37 +297,115 @@ function buildPond(radius) {
 function makeLandscape(bounds) {
   const group = new THREE.Group();
   const hw = bounds.width / 2, hh = bounds.height / 2;
-  const hill1 = buildMound(rnd(120, 160), rnd(0.42, 0.55), 0x3f5a28);
+  const hill1 = buildMound(rnd(128, 168), rnd(0.44, 0.56), 0x3a5624);
   hill1.position.set(-hw * 0.62, hh * 0.55, 0);
-  const hill2 = buildMound(rnd(85, 115), rnd(0.35, 0.48), 0x4a6b30);
+  const hill2 = buildMound(rnd(90, 122), rnd(0.36, 0.5), 0x48682c);
   hill2.position.set(hw * 0.66, -hh * 0.58, 0);
-  const hill3 = buildMound(rnd(55, 78), rnd(0.3, 0.4), 0x355024);
+  const hill3 = buildMound(rnd(58, 82), rnd(0.32, 0.42), 0x314c22);
   hill3.position.set(-hw * 0.7, -hh * 0.62, 0);
-  const pond = buildPond(rnd(55, 78));
-  pond.position.set(hw * 0.6, hh * 0.48, 0);
-  group.add(hill1, hill2, hill3, pond);
+  const hill4 = buildMound(rnd(42, 58), rnd(0.26, 0.36), 0x3d5c28);
+  hill4.position.set(hw * 0.18, hh * 0.08, 0);
+  const pondR = rnd(58, 82);
+  const pondX = hw * 0.6, pondY = hh * 0.48;
+  const shore = new THREE.Mesh(
+    new THREE.CircleGeometry(pondR * 1.22, 32),
+    mat(0xc4a56a, 0.08, 0.06));
+  shore.position.set(pondX, pondY, 0.02);
+  const pond = buildPond(pondR);
+  pond.position.set(pondX, pondY, 0);
+  const inner = new THREE.Mesh(
+    new THREE.CircleGeometry(pondR * 0.55, 24),
+    new THREE.MeshPhongMaterial({
+      color: 0x1a3e48, specular: new THREE.Color(0.55, 0.6, 0.62), shininess: 110,
+      transparent: true, opacity: 0.72,
+    }));
+  inner.position.set(pondX, pondY, 0.07);
+  group.add(hill1, hill2, hill3, hill4, shore, pond, inner);
+  // These details add visual scale for the observer, but have no contact or
+  // sensory model. Keep them off the eye layer (including their shadows).
+  const ornaments = new THREE.Group();
+  group.add(ornaments);
+
+  const pebbleMat = mat(0x8a8378, 0.18, 0.12);
+  for (let i = 0; i < 14; i++) {
+    const a = rnd(0, Math.PI * 2);
+    const d = pondR * rnd(0.92, 1.18);
+    const r = rnd(3.5, 7);
+    const geo = displaceSphere(new THREE.DodecahedronGeometry(r, 0), rnd(0.35, 0.55), 0.16);
+    const p = new THREE.Mesh(geo, pebbleMat);
+    p.position.set(pondX + Math.cos(a) * d, pondY + Math.sin(a) * d, r * 0.22);
+    p.castShadow = SHADOWS_ENABLED;
+    ornaments.add(p);
+  }
+
+  const reedMat = mat(0x4a6b2e, 0.05, 0.05);
+  for (let i = 0; i < 9; i++) {
+    const a = rnd(-0.4, 1.2);
+    const d = pondR * rnd(0.85, 1.05);
+    const h = rnd(22, 38);
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 1.1, h, 5), reedMat);
+    stem.rotation.x = Math.PI / 2;
+    stem.position.set(pondX + Math.cos(a) * d, pondY + Math.sin(a) * d, h / 2);
+    const head = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 2.4, 7, 6), mat(0x5a3a22, 0.08, 0.08));
+    head.rotation.x = Math.PI / 2;
+    head.position.set(stem.position.x, stem.position.y, h + 2);
+    stem.castShadow = SHADOWS_ENABLED;
+    ornaments.add(stem, head);
+  }
+
+  const bladeMat = mat(0x56823c, 0.04, 0.04);
+  for (let i = 0; i < 90; i++) {
+    const x = rnd(-hw * 0.88, hw * 0.88), y = rnd(-hh * 0.88, hh * 0.88);
+    if (Math.hypot(x - pondX, y - pondY) < pondR * 0.95) continue;
+    const h = rnd(7, 16);
+    const blade = new THREE.Mesh(new THREE.ConeGeometry(rnd(0.7, 1.4), h, 4), bladeMat);
+    blade.position.set(x, y, h / 2);
+    blade.rotation.x = Math.PI / 2 + rnd(-0.35, 0.35);
+    blade.rotation.y = rnd(-0.3, 0.3);
+    blade.castShadow = SHADOWS_ENABLED;
+    ornaments.add(blade);
+  }
+
+  const litterMat = mat(0x5a7a34, 0.08, 0.06);
+  for (let i = 0; i < 22; i++) {
+    const leaf = new THREE.Mesh(new THREE.CircleGeometry(rnd(6, 11), 7), litterMat);
+    leaf.position.set(rnd(-hw * 0.8, hw * 0.8), rnd(-hh * 0.8, hh * 0.8), 0.28);
+    leaf.rotation.z = rnd(0, Math.PI * 2);
+    leaf.scale.y = rnd(0.45, 0.75);
+    ornaments.add(leaf);
+  }
+  markDisplayOnly(ornaments);
   return group;
 }
 
 // ---- object kinds ----
 
 function buildRock(radius) {
-  const mesh = new THREE.Mesh(
-    new THREE.IcosahedronGeometry(radius, 0),
-    mat(0x6b665f, 0.15, 0.1));
-  mesh.rotation.set(rnd(0, Math.PI), rnd(0, Math.PI), rnd(0, Math.PI));
-  mesh.scale.set(1, 1, rnd(0.55, 0.8));
-  mesh.position.z = radius * 0.35;
-  mesh.castShadow = SHADOWS_ENABLED;
-  return mesh;
+  const group = new THREE.Group();
+  const color = [0x6b665f, 0x5c5850, 0x7a7368, 0x4e4a44][Math.floor(rnd(0, 4))];
+  const main = new THREE.Mesh(
+    displaceSphere(new THREE.IcosahedronGeometry(radius, 1), rnd(0.5, 0.78), 0.2),
+    mat(color, 0.16, 0.11));
+  main.rotation.set(rnd(0, Math.PI), rnd(0, Math.PI), rnd(0, Math.PI));
+  main.position.z = radius * 0.32;
+  group.add(main);
+  if (R() < 0.7) {
+    const chip = new THREE.Mesh(
+      displaceSphere(new THREE.TetrahedronGeometry(radius * rnd(0.28, 0.45), 0), 0.7, 0.12),
+      mat(color, 0.16, 0.11));
+    chip.position.set(radius * rnd(-0.35, 0.35), radius * rnd(-0.35, 0.35), radius * 0.18);
+    group.add(chip);
+  }
+  group.traverse((o) => { if (o.isMesh) { o.castShadow = SHADOWS_ENABLED; o.receiveShadow = SHADOWS_ENABLED; } });
+  return group;
 }
 
 function buildPebble(radius) {
   const mesh = new THREE.Mesh(
-    new THREE.DodecahedronGeometry(radius, 0),
-    mat(0x9a9488, 0.2, 0.15));
+    displaceSphere(new THREE.DodecahedronGeometry(radius, 0), rnd(0.45, 0.7), 0.14),
+    mat([0x9a9488, 0xb0a898, 0x7e786e][Math.floor(rnd(0, 3))], 0.22, 0.16));
   mesh.rotation.set(rnd(0, Math.PI), rnd(0, Math.PI), rnd(0, Math.PI));
-  mesh.position.z = radius * 0.4;
+  mesh.position.z = radius * 0.35;
   mesh.castShadow = SHADOWS_ENABLED;
   return mesh;
 }
@@ -202,16 +413,26 @@ function buildPebble(radius) {
 function buildMushroom(radius) {
   const group = new THREE.Group();
   const stem = new THREE.Mesh(
-    new THREE.CylinderGeometry(radius * 0.22, radius * 0.3, radius * 1.1, 10),
+    new THREE.CylinderGeometry(radius * 0.18, radius * 0.28, radius * 1.15, 12),
     mat(0xe8ddc0, 0.2, 0.15));
   stem.rotation.x = Math.PI / 2;
   stem.position.z = radius * 0.55;
+  const capColor = [0xb5432f, 0xc98a2c, 0x8a3a24, 0xd4c4a0][Math.floor(rnd(0, 4))];
   const cap = new THREE.Mesh(
-    new THREE.SphereGeometry(radius, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2.1),
-    mat(rnd(0, 1) < 0.5 ? 0xb5432f : 0xc98a2c, 0.25, 0.2));
+    new THREE.SphereGeometry(radius, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2.05),
+    mat(capColor, 0.28, 0.22));
   cap.rotation.x = Math.PI / 2;
-  cap.position.z = radius * 1.05;
+  cap.position.z = radius * 1.08;
   group.add(stem, cap);
+  if (R() < 0.65) {
+    const spotMat = mat(0xf2e6c8, 0.15, 0.12);
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 + rnd(-0.2, 0.2);
+      const spot = new THREE.Mesh(new THREE.SphereGeometry(radius * rnd(0.08, 0.14), 6, 5), spotMat);
+      spot.position.set(Math.cos(a) * radius * 0.45, Math.sin(a) * radius * 0.45, radius * 1.28);
+      group.add(spot);
+    }
+  }
   group.traverse((o) => { if (o.isMesh) o.castShadow = SHADOWS_ENABLED; });
   return group;
 }
@@ -241,47 +462,51 @@ function buildLog(radius) {
 function buildFlower(radius) {
   const group = new THREE.Group();
   const stem = new THREE.Mesh(
-    new THREE.CylinderGeometry(radius * 0.05, radius * 0.07, radius * 1.6, 6),
+    new THREE.CylinderGeometry(radius * 0.045, radius * 0.07, radius * 1.75, 6),
     mat(0x3f6b2a, 0.05, 0.05));
   stem.rotation.x = Math.PI / 2;
-  stem.position.z = radius * 0.8;
+  stem.position.z = radius * 0.88;
   group.add(stem);
-  const petalColor = [0xdd6b9c, 0xe0b23a, 0xd94f4f][Math.floor(rnd(0, 3))];
-  const petalMat = mat(petalColor, 0.2, 0.15);
-  const n = 5;
+  const petalColor = [0xdd6b9c, 0xe0b23a, 0xd94f4f, 0xc9d6ff, 0xf2d0a0][Math.floor(rnd(0, 5))];
+  const petalMat = mat(petalColor, 0.22, 0.16);
+  const n = 6;
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2;
-    const petal = new THREE.Mesh(new THREE.SphereGeometry(radius * 0.32, 8, 6), petalMat);
-    petal.position.set(Math.cos(a) * radius * 0.38, Math.sin(a) * radius * 0.38, radius * 1.55);
-    petal.scale.z = 0.5;
+    const petal = new THREE.Mesh(new THREE.SphereGeometry(radius * 0.34, 8, 6), petalMat);
+    petal.position.set(Math.cos(a) * radius * 0.4, Math.sin(a) * radius * 0.4, radius * 1.68);
+    petal.scale.set(1, 0.55, 0.32);
+    petal.lookAt(0, 0, radius * 2.2);
     group.add(petal);
   }
-  const center = new THREE.Mesh(new THREE.SphereGeometry(radius * 0.22, 8, 6), mat(0xe8c93a, 0.25, 0.2));
-  center.position.z = radius * 1.55;
+  const center = new THREE.Mesh(new THREE.SphereGeometry(radius * 0.2, 8, 6), mat(0xe8c93a, 0.28, 0.22));
+  center.position.z = radius * 1.7;
   group.add(center);
   group.traverse((o) => { if (o.isMesh) o.castShadow = SHADOWS_ENABLED; });
   return group;
 }
 
 function buildLeaf(radius) {
-  const mesh = new THREE.Mesh(new THREE.CircleGeometry(radius, 8), mat(0x4c7a34, 0.1, 0.08));
-  mesh.position.z = 0.3;
+  const mesh = new THREE.Mesh(
+    new THREE.CircleGeometry(radius, 10),
+    mat([0x4c7a34, 0x6a8a38, 0x8a6a28][Math.floor(rnd(0, 3))], 0.1, 0.08));
+  mesh.position.z = 0.32;
   mesh.rotation.z = rnd(0, Math.PI * 2);
-  mesh.scale.y = rnd(0.55, 0.75);
+  mesh.rotation.x = rnd(-0.15, 0.2);
+  mesh.scale.y = rnd(0.5, 0.78);
   mesh.castShadow = SHADOWS_ENABLED;
   return mesh;
 }
 
 function buildGrassTuft(radius) {
   const group = new THREE.Group();
-  const bladeMat = mat(0x5c8a3a, 0.05, 0.05);
-  const n = 5;
+  const bladeMat = mat([0x5c8a3a, 0x4a7a32, 0x6b9440][Math.floor(rnd(0, 3))], 0.05, 0.05);
+  const n = 8;
   for (let i = 0; i < n; i++) {
-    const h = radius * rnd(1.3, 2.0);
-    const blade = new THREE.Mesh(new THREE.ConeGeometry(radius * 0.12, h, 5), bladeMat);
-    blade.position.set(rnd(-radius * 0.4, radius * 0.4), rnd(-radius * 0.4, radius * 0.4), h / 2);
-    blade.rotation.x = Math.PI / 2 + rnd(-0.25, 0.25);
-    blade.rotation.y = rnd(-0.25, 0.25);
+    const h = radius * rnd(1.4, 2.3);
+    const blade = new THREE.Mesh(new THREE.ConeGeometry(radius * 0.09, h, 4), bladeMat);
+    blade.position.set(rnd(-radius * 0.45, radius * 0.45), rnd(-radius * 0.45, radius * 0.45), h / 2);
+    blade.rotation.x = Math.PI / 2 + rnd(-0.32, 0.32);
+    blade.rotation.y = rnd(-0.28, 0.28);
     group.add(blade);
   }
   group.traverse((o) => { if (o.isMesh) o.castShadow = SHADOWS_ENABLED; });
@@ -291,13 +516,13 @@ function buildGrassTuft(radius) {
 function buildBush(radius) {
   const group = new THREE.Group();
   const leafMat = mat(0x3d6a2a, 0.08, 0.06);
-  const clumps = 5;
+  const clumps = 7;
   for (let i = 0; i < clumps; i++) {
-    const r = radius * rnd(0.45, 0.7);
-    const clump = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), leafMat);
+    const r = radius * rnd(0.4, 0.68);
+    const clump = new THREE.Mesh(displaceSphere(new THREE.IcosahedronGeometry(r, 0), 1, 0.12), leafMat);
     const a = (i / clumps) * Math.PI * 2 + rnd(-0.3, 0.3);
-    const d = i === 0 ? 0 : radius * rnd(0.35, 0.55);
-    clump.position.set(Math.cos(a) * d, Math.sin(a) * d, r * 0.85 + rnd(0, 4));
+    const d = i === 0 ? 0 : radius * rnd(0.32, 0.55);
+    clump.position.set(Math.cos(a) * d, Math.sin(a) * d, r * 0.85 + rnd(0, 5));
     clump.rotation.set(rnd(0, Math.PI), rnd(0, Math.PI), rnd(0, Math.PI));
     group.add(clump);
   }
@@ -308,17 +533,16 @@ function buildBush(radius) {
 function buildStump(radius) {
   const group = new THREE.Group();
   const body = new THREE.Mesh(
-    new THREE.CylinderGeometry(radius * 0.9, radius, radius * 0.75, 14),
+    new THREE.CylinderGeometry(radius * 0.9, radius, radius * 0.82, 16),
     mat(0x6b4a2c, 0.12, 0.1));
   body.rotation.x = Math.PI / 2;
-  body.position.z = radius * 0.375;
+  body.position.z = radius * 0.41;
   group.add(body);
-  // flat growth-ring outlines on the cut top face
-  const topZ = radius * 0.75 + 0.05;
+  const topZ = radius * 0.82 + 0.05;
   const ringMat = mat(0x8a6438, 0.15, 0.12);
-  for (let i = 1; i <= 2; i++) {
-    const r = radius * 0.9 * (i / 3);
-    const ring = new THREE.Mesh(new THREE.RingGeometry(Math.max(0.5, r - 1.2), r, 20), ringMat);
+  for (let i = 1; i <= 3; i++) {
+    const r = radius * 0.9 * (i / 4);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(Math.max(0.5, r - 1.1), r, 22), ringMat);
     ring.position.z = topZ;
     group.add(ring);
   }
@@ -351,13 +575,11 @@ function buildBerryCluster(radius) {
 function buildFern(radius) {
   const group = new THREE.Group();
   const frondMat = mat(0x3f7a3a, 0.08, 0.06);
-  const fronds = 7;
+  const fronds = 8;
   for (let i = 0; i < fronds; i++) {
-    const a = (i / fronds) * Math.PI * 2 + rnd(-0.15, 0.15);
-    const len = radius * rnd(1.1, 1.6);
-    const droop = rnd(0.15, 0.45);
-    // two capsule segments at a slight break angle stand in for a curved,
-    // drooping frond without a full spline — cheap and reads fine at scale.
+    const a = (i / fronds) * Math.PI * 2 + rnd(-0.12, 0.12);
+    const len = radius * rnd(1.15, 1.7);
+    const droop = rnd(0.18, 0.5);
     const inner = new THREE.Mesh(new THREE.CapsuleGeometry(radius * 0.05, len * 0.55, 2, 5), frondMat);
     inner.position.set(0, 0, len * 0.275);
     inner.rotation.x = Math.PI / 2 - droop * 0.3;
@@ -375,9 +597,8 @@ function buildFern(radius) {
 
 function buildMossPatch(radius) {
   const mesh = new THREE.Mesh(
-    new THREE.IcosahedronGeometry(radius, 1),
+    displaceSphere(new THREE.IcosahedronGeometry(radius, 1), 0.18, 0.1),
     mat(0x3f6b34, 0.06, 0.04));
-  mesh.scale.z = 0.16;
   mesh.position.z = radius * 0.05;
   mesh.rotation.z = rnd(0, Math.PI * 2);
   return mesh;
@@ -413,15 +634,82 @@ function buildPuddle(radius) {
   return mesh;
 }
 
+function buildSapling(radius) {
+  const group = new THREE.Group();
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(radius * 0.1, radius * 0.16, radius * 2.1, 8),
+    mat(0x5a3c22, 0.1, 0.08));
+  trunk.rotation.x = Math.PI / 2;
+  trunk.position.z = radius * 1.05;
+  group.add(trunk);
+  const leafMat = mat(0x2f6a28, 0.08, 0.06);
+  for (let i = 0; i < 5; i++) {
+    const canopy = new THREE.Mesh(displaceSphere(new THREE.IcosahedronGeometry(radius * rnd(0.4, 0.62), 0), 0.85, 0.1), leafMat);
+    const a = (i / 5) * Math.PI * 2;
+    canopy.position.set(Math.cos(a) * radius * 0.22, Math.sin(a) * radius * 0.22, radius * (1.7 + (i === 0 ? 0.45 : 0.15)));
+    group.add(canopy);
+  }
+  group.traverse((o) => { if (o.isMesh) o.castShadow = SHADOWS_ENABLED; });
+  return group;
+}
+
+function buildPinecone(radius) {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.SphereGeometry(radius, 10, 8),
+    mat(0x6b4a28, 0.12, 0.1));
+  body.scale.set(0.72, 0.72, 1.15);
+  body.position.z = radius * 0.7;
+  group.add(body);
+  const scaleMat = mat(0x8a6234, 0.1, 0.08);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const scale = new THREE.Mesh(new THREE.ConeGeometry(radius * 0.18, radius * 0.32, 5), scaleMat);
+    scale.position.set(Math.cos(a) * radius * 0.42, Math.sin(a) * radius * 0.42, radius * 0.55);
+    scale.rotation.x = Math.PI / 2 + 0.6;
+    scale.rotation.z = a;
+    group.add(scale);
+  }
+  group.traverse((o) => { if (o.isMesh) o.castShadow = SHADOWS_ENABLED; });
+  return group;
+}
+
+function buildCattail(radius) {
+  const group = new THREE.Group();
+  const h = radius * 2.4;
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.06, radius * 0.08, h, 6), mat(0x4a6b2e, 0.05, 0.05));
+  stem.rotation.x = Math.PI / 2;
+  stem.position.z = h / 2;
+  const head = new THREE.Mesh(new THREE.CylinderGeometry(radius * 0.16, radius * 0.18, radius * 0.7, 8), mat(0x5a3820, 0.1, 0.08));
+  head.rotation.x = Math.PI / 2;
+  head.position.z = h + radius * 0.1;
+  group.add(stem, head);
+  group.traverse((o) => { if (o.isMesh) o.castShadow = SHADOWS_ENABLED; });
+  return group;
+}
+
+function buildShell(radius) {
+  const mesh = new THREE.Mesh(
+    displaceSphere(new THREE.SphereGeometry(radius, 12, 10), 0.45, 0.12),
+    mat(0xd8c4a8, 0.35, 0.28));
+  mesh.position.z = radius * 0.22;
+  mesh.rotation.z = rnd(0, Math.PI * 2);
+  mesh.castShadow = SHADOWS_ENABLED;
+  return mesh;
+}
+
 function buildFirefly(radius) {
   const group = new THREE.Group();
   const glow = new THREE.Mesh(
-    new THREE.SphereGeometry(radius, 12, 10),
+    new THREE.SphereGeometry(radius, 14, 12),
     new THREE.MeshBasicMaterial({ color: 0xd8ff8a, transparent: true, opacity: 1 }));
+  const halo = new THREE.Mesh(
+    new THREE.SphereGeometry(radius * 1.85, 10, 8),
+    new THREE.MeshBasicMaterial({ color: 0xc6ff6a, transparent: true, opacity: 0.18, depthWrite: false }));
   const light = new THREE.PointLight(0xd8ff8a, 0.8, 240, 2);
-  group.add(glow, light);
+  group.add(glow, halo, light);
   group.position.z = 26;
-  return { node: group, light, glow };
+  return { node: group, light, glow, halo };
 }
 
 // Rendering only: the parts of one object that share a material (petals,
@@ -437,11 +725,15 @@ export function mergeByMaterial(root) {
   const byMaterial = new Map();
   root.traverse((o) => {
     if (!o.isMesh || o.material.transparent) return;
-    if (!byMaterial.has(o.material)) byMaterial.set(o.material, []);
-    byMaterial.get(o.material).push(o);
+    // Layers are part of the scientific observer/eye boundary. Never merge
+    // observer-only decoration back onto the default eye-visible layer.
+    const key = `${o.material.id}:${o.layers.mask}`;
+    if (!byMaterial.has(key)) byMaterial.set(key, []);
+    byMaterial.get(key).push(o);
   });
-  for (const [material, meshes] of byMaterial) {
+  for (const meshes of byMaterial.values()) {
     if (meshes.length < 2) continue;
+    const material = meshes[0].material;
     const parts = meshes.map((m) => {
       const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
       return g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(toRoot, m.matrixWorld));
@@ -457,6 +749,7 @@ export function mergeByMaterial(root) {
       merged.setAttribute(name, new THREE.BufferAttribute(out, itemSize));
     }
     const mesh = new THREE.Mesh(merged, material);
+    mesh.layers.mask = meshes[0].layers.mask;
     mesh.castShadow = meshes[0].castShadow;
     mesh.receiveShadow = meshes[0].receiveShadow;
     for (const m of meshes) { m.parent.remove(m); m.geometry.dispose(); }
@@ -525,6 +818,11 @@ const OBSTACLE_SPECS = [
   { kind: 'moss', radius: () => rnd(10, 15), build: buildMossPatch, solid: false },
   { kind: 'puddle', radius: () => rnd(16, 24), build: buildPuddle, solid: false },
   { kind: 'puddle', radius: () => rnd(12, 18), build: buildPuddle, solid: false },
+  { kind: 'sapling', radius: () => rnd(18, 26), build: buildSapling, solid: true },
+  { kind: 'pinecone', radius: () => rnd(8, 12), build: buildPinecone, solid: true },
+  { kind: 'cattail', radius: () => rnd(10, 14), build: buildCattail, solid: false },
+  { kind: 'cattail', radius: () => rnd(9, 13), build: buildCattail, solid: false },
+  { kind: 'shell', radius: () => rnd(7, 11), build: buildShell, solid: false },
 ];
 
 // Relative scent strength per kind (0 = odourless). The extracted circuit
@@ -534,7 +832,8 @@ const OBSTACLE_SPECS = [
 const SCENT_BY_KIND = {
   flower: 1.0, berry: 0.85, mushroom: 0.75, log: 0.45, stump: 0.4, bush: 0.3,
   branch: 0.2, fern: 0.15, grass: 0.15, leaf: 0.2, moss: 0.1, twig: 0.1,
-  rock: 0, pebble: 0, puddle: 0.05, firefly: 0,
+  rock: 0, pebble: 0, puddle: 0.05, firefly: 0, sapling: 0.25, pinecone: 0.12,
+  cattail: 0.08, shell: 0,
 };
 
 export class World {
@@ -563,7 +862,11 @@ export class World {
     this._ground = makeGround(bounds, this.landscapeSeed);
     this._walls = makeWalls(bounds);
     this._landscape = withSeed(this.landscapeSeed, () => makeLandscape(bounds));
-    this.node.add(this._ground, this._walls, this._landscape);
+    this._cabinet = makeCabinet(bounds);
+    if (this.merge) {
+      mergeByMaterial(this._landscape);
+    }
+    this.node.add(this._ground, this._walls, this._landscape, this._cabinet);
   }
 
   // Everything another process needs to rebuild these objects exactly.
@@ -581,22 +884,23 @@ export class World {
   _placeFromLayout(records) {
     for (const r of records) {
       if (r.kind === 'firefly') {
-        const { node, light, glow } = buildFirefly(r.radius);
+        const { node, light, glow, halo } = buildFirefly(r.radius);
         node.position.set(r.x, r.y, 26);
         this.node.add(node);
         this.objects.push({ kind: 'firefly', spec: -1, seed: r.seed, pos: { x: r.x, y: r.y }, radius: r.radius,
-          solid: false, mesh: node, light, glow, vx: 0, vy: 0, wanderT: 1, glowLevel: 0, dimLevel: 1, z: 26,
+          solid: false, mesh: node, light, glow, halo, vx: 0, vy: 0, wanderT: 1, glowLevel: 0, dimLevel: 1, z: 26,
           flickerPhase: r.flickerPhase, flashPeriod: r.flashPeriod, scent: 0 });
         continue;
       }
       const spec = OBSTACLE_SPECS[r.spec];
       if (!spec) continue;
       const mesh = withSeed(r.seed, () => spec.build(r.radius));
+      const topZ = renderedTop(mesh, r.radius * 1.1);
       if (this.merge) mergeByMaterial(mesh);
       mesh.position.x = r.x; mesh.position.y = r.y;
       this.node.add(mesh);
       this.objects.push({ kind: r.kind, spec: r.spec, seed: r.seed, pos: { x: r.x, y: r.y }, radius: r.radius,
-        solid: spec.solid, mesh, scent: r.scent });
+        solid: spec.solid, mesh, topZ, scent: r.scent });
     }
   }
 
@@ -697,6 +1001,7 @@ export class World {
     const dim = o.dimLevel ?? 1;
     if (o.light) o.light.intensity = (0.35 * dim) + o.glowLevel * 0.9;
     if (o.glow) o.glow.material.opacity = (0.3 * dim) + o.glowLevel * 0.7;
+    if (o.halo) o.halo.material.opacity = (0.08 * dim) + o.glowLevel * 0.28;
   }
 
   // Rejection-samples a spot inside the window that keeps clear of the fly's
@@ -710,7 +1015,7 @@ export class World {
   _safeSpot(bounds, radius, margin = 55) {
     const hw = bounds.width / 2 - 90, hh = bounds.height / 2 - 90;
     let best = null, bestClearance = -Infinity;
-    for (let k = 0; k < 40; k++) {
+    for (let k = 0; k < 80; k++) {
       const p = { x: rnd(-hw, hw), y: rnd(-hh, hh) };
       if (Math.hypot(p.x, p.y) < 90) continue;
       const clearance = this.objects.length
@@ -733,11 +1038,12 @@ export class World {
       const pos = this._safeSpot(bounds, radius);
       const seed = Math.floor(R() * 0x100000000);
       const mesh = withSeed(seed, () => spec.build(radius));
+      const topZ = renderedTop(mesh, radius * 1.1);
       mesh.position.x = pos.x;
       mesh.position.y = pos.y;
       this.node.add(mesh);
       this.objects.push({
-        kind: spec.kind, spec: specIndex, seed, pos, radius, solid: spec.solid, mesh,
+        kind: spec.kind, spec: specIndex, seed, pos, radius, topZ, solid: spec.solid, mesh,
         scent: (SCENT_BY_KIND[spec.kind] ?? 0) * rnd(0.8, 1.15),
       });
     });
@@ -750,12 +1056,12 @@ export class World {
     for (let k = 0; k < 2; k++) {
       const radius = 9;
       const pos = this._safeSpot(bounds, radius, 40);
-      const { node, light, glow } = buildFirefly(radius);
+      const { node, light, glow, halo } = buildFirefly(radius);
       node.position.x = pos.x;
       node.position.y = pos.y;
       this.node.add(node);
       this.objects.push({
-        kind: 'firefly', spec: -1, seed: 0, pos, radius, solid: false, mesh: node, light, glow,
+        kind: 'firefly', spec: -1, seed: 0, pos, radius, solid: false, mesh: node, light, glow, halo,
         vx: 0, vy: 0, wanderT: rnd(0.4, 1.6), flickerPhase: rnd(0, Math.PI * 2),
         flashPeriod: rnd(2.5, 5), glowLevel: 0, dimLevel: 1, z: 26, scent: 0,
       });
@@ -765,7 +1071,8 @@ export class World {
   resize(bounds) {
     if (this.merge) { for (const o of this.objects) o.loose = false; this.batchDirty = true; }
     if (this.dressing) {
-      this.node.remove(this._ground, this._walls, this._landscape);
+      this.node.remove(this._ground, this._walls, this._landscape, this._cabinet);
+      for (const part of [this._ground, this._walls, this._landscape, this._cabinet]) disposeTree(part);
       this._buildDressing(bounds);
     }
     const hw = bounds.width / 2 - 60, hh = bounds.height / 2 - 60;
@@ -856,18 +1163,18 @@ export class World {
     const antennaZ = (fly.node?.position?.z ?? 0) + ANTENNA_LOCAL.height * scale;
     // A real fly in the air isn't in contact with, or looming-close over,
     // objects sitting on the ground below it — a fly cruising at altitude
-    // over a mushroom is not touching the mushroom. Objects here have no
-    // stored height, so each one's real solid extent is approximated as
-    // ground level up to roughly its own radius (a reasonable stand-in
-    // across rocks/mushrooms/bushes/logs alike); the fly's own real
-    // rendered height clears that once airborne. Scent is deliberately
+    // over a mushroom is not touching the mushroom. Use the modelled mesh's
+    // geometry-derived top extent rather than a radius proxy: a sapling rises much higher
+    // than a pebble with the same ground footprint. Scent is deliberately
     // exempt — real odor plumes rise and reach a flying insect for real.
     const flyZ = fly.node?.position?.z || 0;
     for (const o of this.objects) {
       const dx = o.pos.x - fly.pos.x, dy = o.pos.y - fly.pos.y;
       const dist2d = Math.max(1, Math.hypot(dx, dy));
-      const objTopZ = o.kind === 'firefly' ? 26 : o.radius * 1.1;
-      const dz = Math.max(0, flyZ - objTopZ);
+      // A ground object is only "below" a fly flying over it; a firefly hovers
+      // at its own height, so its real vertical separation counts both ways.
+      const objTopZ = o.kind === 'firefly' ? 26 : (o.topZ ?? o.radius * 1.1);
+      const dz = o.kind === 'firefly' ? Math.abs(flyZ - (o.z ?? objTopZ)) : Math.max(0, flyZ - objTopZ);
       const dist = Math.max(1, Math.hypot(dx, dy, dz));
       const crossZ = (f.x * dy - f.y * dx) / dist2d;
       const lw = clampf(0.5 + 0.5 * crossZ, 0.12, 1);
@@ -880,9 +1187,16 @@ export class World {
         // proximity bonus (up to 0.35 on top of the approach term, 1.35 in
         // all) held the giant fiber near 250 Hz whenever she landed beside
         // one. Proximity now adds no more than a static object does.
+        // What they measure is the expansion of a silhouette: an object of
+        // radius r closing at v from distance d grows at dθ/dt = 2rv/(d²+r²).
+        // The former term (closing speed over distance, whatever the size)
+        // made a small firefly drifting towards her a full-strength threat,
+        // and with the proximity bonus below threshold-crossing, so the live
+        // fly took off every few seconds with nothing looming.
         const closing = -(dx * o.vx + dy * o.vy) / dist;
-        strength = clampf(closing / dist * 5, 0, 1) * clampf(1 - dist / 260, 0, 1);
-        strength = clampf(strength + clampf((60 - dist) / 60, 0, 1) ** 2 * 0.16, 0, 1);
+        const expansion = 2 * o.radius * Math.max(0, closing) / (dist * dist + o.radius * o.radius);
+        strength = clampf(expansion / LOOM_FULL_EXPANSION, 0, 1);
+        strength = clampf(strength + staticCue(dist - o.radius), 0, 1);
       } else {
         // Reality check, corrected: LC4/LPLC2 are tuned to an EXPANDING
         // silhouette (something actually approaching), not mere proximity —
@@ -897,8 +1211,7 @@ export class World {
         // peripheral-vision cue here; actual approach (the rendered vision
         // system's real motion energy, the cursor, a closing firefly, fire)
         // remains the real driver of the escape pathway.
-        const near = dist - o.radius;
-        strength = clampf((35 - near) / 35, 0, 1) ** 2 * 0.16;
+        strength = staticCue(dist - o.radius);
       }
       loomL = Math.max(loomL, strength * lw);
       loomR = Math.max(loomR, strength * rw);
@@ -948,7 +1261,7 @@ export class World {
     const flyZ = fly.node?.position?.z || 0;
     for (const o of this.objects) {
       if (!o.solid) continue;
-      if (flyZ > o.radius * 1.1) continue;
+      if (flyZ > (o.topZ ?? o.radius * 1.1)) continue;
       const touchDist = o.radius + FLY_TOUCH_RADIUS;
       const dx = fly.pos.x - o.pos.x, dy = fly.pos.y - o.pos.y;
       const dist = Math.max(0.001, Math.hypot(dx, dy));

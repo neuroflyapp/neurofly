@@ -50,6 +50,27 @@ function run() {
   setTimeout(run, loop ? nextSimulationWake({ paused: loop.paused, accumulator: loop.clock.accumulator, speed: loop.speed, computeMs: performance.now() - now }) : 16);
 }
 
+// While the page builds its views the live loop is paused. A throwaway loop
+// (own seed, discarded afterwards) runs one simulated second meanwhile, so the
+// live fly's first milliseconds run optimized code instead of dropping time to
+// JIT warm-up. It shares no state with the live loop: the live state after 5 s
+// is bit-identical with and without it, and the data are left unchanged.
+// It runs in portions of ten ticks and stops as soon as the live fly starts:
+// run as one block it could hold the start command back for many seconds on
+// a busy machine (the live fly then sat paused through the UI test's pace
+// windows).
+function warmUp(data, bounds) {
+  let warm = null;
+  try { warm = new ClosedLoop({ data, bounds, seed: 1 }); } catch { return; /* only an optimisation */ }
+  let ticks = 0;
+  const portion = () => {
+    if (!loop?.paused || ticks >= 120) return;
+    try { for (let k = 0; k < 10; k++, ticks++) warm.tick(1 / 120); } catch { return; }
+    setTimeout(portion, 0);
+  };
+  portion();
+}
+
 function reply(id, result) { if (id) post('reply', { id, result }); }
 
 onmessage = (event) => {
@@ -58,7 +79,8 @@ onmessage = (event) => {
     switch (m.type) {
       case 'frame-ack': framePending = false; break;
       case 'init': {
-        loop = new ClosedLoop({ data: m.data, bounds: m.bounds, seed: m.seed });
+        const data = m.data ?? JSON.parse(m.dataText);
+        loop = new ClosedLoop({ data, bounds: m.bounds, seed: m.seed });
         // The page can finish constructing both GPU views before neural time
         // begins. Otherwise startup contention creates an avoidable gap in a
         // run that has not yet been visible to the observer.
@@ -67,6 +89,7 @@ onmessage = (event) => {
         post('ready', { layout: loop.world.layout(), populations: [...loop.populations().values()].map(({ key, label, indices }) => ({ key, label, count: indices.length })),
           seed: loop.neuralSeed, sessionId: loop.sessionId, hasTaste: loop.sim.hasTaste, hasGrooming: loop.sim.hasGroomingPathway });
         last = performance.now();
+        if (loop.paused) setTimeout(() => warmUp(data, m.bounds), 0);
         run();
         break;
       }

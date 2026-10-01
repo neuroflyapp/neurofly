@@ -1,9 +1,9 @@
 # MaleCNS locomotor circuit: provenance and limits
 
 `locomotor_circuit.json` holds a bounded leg circuit taken from the public
-**MaleCNS v1.0** connectome (adult male brain and nerve cord). In NeuroFly it
+**MaleCNS v1.0** connectome (adult male brain and nerve cord). In the NeuroCause fly model it
 sits next to the female FlyWire v783 brain circuit. It is a selection, not a
-complete nerve cord, and it does not make NeuroFly a whole-CNS simulation.
+complete nerve cord, and it does not make the fly model a whole-CNS simulation.
 
 ## Source and licence
 
@@ -95,7 +95,7 @@ the dataset.
 ## Stepping rules and `rhythm_decoder.json`
 
 The selection contains no interneurons that generate a stepping rhythm, and
-driving DNp09 alone makes the legs twitch rather than step. NeuroFly therefore
+driving DNp09 alone makes the legs twitch rather than step. The fly model therefore
 adds modeled, leg-local stepping rules (`windows/src/rhythm.js`, after Walknet:
 Cruse 1990; Dürr, Schmitz & Cruse 2004; and the rule-based controller of
 NeuroMechFly v2, Wang-Chen et al. 2024). They read the modeled body's joint
@@ -103,7 +103,7 @@ angles, velocities and foot contacts and produce joint-axis demands (hip,
 elevation and knee of each leg). Nothing in them is measured.
 
 The demands reach the cord as drive onto premotor cells listed in
-`rhythm_decoder.json`. That file is **derived from the NeuroFly cord model, not
+`rhythm_decoder.json`. That file is **derived from the NeuroCause cord model, not
 from the connectome's annotations**: `windows/tools/derive-rhythm-decoder.mjs`
 drives each of the 622 premotor cells alone (excited, then inhibited) in an
 active model cord, measures the change of all 18 joint axes, fits a sparse

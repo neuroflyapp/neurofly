@@ -1,12 +1,11 @@
 {
-  "name": "neurofly",
-  "version": "2.2.0",
+  "name": "neurocause",
+  "version": "2.3.0",
   "description": "NeuroCause — in-silico experiments on measured nervous systems; first model: a fruit fly on the FlyWire brain and a MaleCNS walking circuit",
   "main": "main.js",
   "type": "module",
   "scripts": {
     "start": "electron .",
-    "reels:render": "node tools/render-reels.mjs",
     "uitest": "electron test/electron-smoke.mjs",
     "pretest": "node tools/check-i18n.mjs --strict && node test/bodyfeedbacktest.js && node test/rawaudit-test.js && node test/eyereadbacktest.js && node test/journaltest.js && node test/recordingpackagetest.js && node test/specimentest.js && node test/specimenservicetest.js && node test/swctest.js",
     "simtest": "node test/simtest.js",
@@ -18,6 +17,7 @@
     "specimentest": "node test/specimentest.js",
     "specimens:uitest": "node test/specimen-ui-smoke.cjs",
     "datasets:acquire": "node tools/acquire-connectomes.mjs",
+    "datasets:acquire:small": "node tools/acquire-hemibrain-meta.mjs && node tools/acquire-larval-supplement.mjs && node tools/acquire-banc-reviewed-matches.mjs",
     "plasticitytest": "node test/plasticitytest.js",
     "manifesttest": "node test/manifesttest.js",
     "performancetest": "node test/performancetest.js",

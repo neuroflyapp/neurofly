@@ -1,5 +1,5 @@
 // Isolated headless component test; does not touch the user's Electron session.
-const { chromium } = require(process.env.NEUROFLY_PLAYWRIGHT_PATH || 'playwright');
+const { chromium } = require(process.env.NEUROFLY_PLAYWRIGHT_PATH || 'playwright-core');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -12,7 +12,7 @@ const output = process.env.NEUROFLY_TEST_OUTPUT || path.join(root, 'test-artifac
   const { createSpecimenService } = await import(pathToFileURL(path.join(root, 'src/specimen-service.js')));
   const store = createSpecimenStore();
   const service = createSpecimenService();
-  const wanted = process.env.NEUROFLY_TEST_PROFILES?.split(',') || ['banc-v888', 'malecns-v1', 'fafb-v783'];
+  const wanted = process.env.NEUROFLY_TEST_PROFILES?.split(',') || ['banc-v888', 'malecns-v1', 'manc-v1.0', 'fafb-v783', 'optic-lobe-v1.1', 'hemibrain-v1.2', 'l1em-winding-2023'];
   assert.ok(wanted.every(id => store.catalog().profiles.some(p => p.id === id && p.status === 'anatomy-ready')), 'requested anatomy packages must be imported');
   const server = http.createServer(async (req, res) => {
     let file;

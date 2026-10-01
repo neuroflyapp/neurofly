@@ -1,4 +1,4 @@
-// electron-smoke.mjs — end-to-end smoke test of the NeuroFly Studio in real
+// electron-smoke.mjs — end-to-end smoke test of NeuroCause Studio in real
 // Electron: the actual main process, preload, renderer, simulation worker and
 // GPU views, in a throwaway profile.
 //   npm run uitest            (electron test/electron-smoke.mjs)
@@ -6,7 +6,7 @@
 //
 // The page is driven only through DOM calls (element.click(), synthetic key
 // events) — never OS-level mouse or keyboard input — so it cannot disturb a
-// NeuroFly the user has open. The fresh user-data directory gives the test its
+// NeuroCause session the user has open. The fresh user-data directory gives the test its
 // own single-instance lock.
 
 import { app } from 'electron';
@@ -82,10 +82,37 @@ async function run(win) {
   }
   report(neural > 0.4 * wall, 'neural time advances in real time',
     `${Math.round(neural)} ms of neural time in ${(wall / 1000).toFixed(1)} s wall time (window ${windows})`);
-  const renderQuality = await js(win, `return { brain: __nf.views.brain.pixelRatio, shared: __nf.pixelRatio };`);
-  report(Number.isFinite(renderQuality.brain) && Math.abs(renderQuality.brain - renderQuality.shared) < 0.001,
-    'both 3D views follow the same adaptive display resolution',
-    `${renderQuality.brain?.toFixed(2)}× brain, ${renderQuality.shared?.toFixed(2)}× shared`);
+  // Left alone, the live fly must not keep fleeing things that are not there.
+  // Only this run sees her rendered eye and the operating-system senses; with
+  // them, self-motion, a size-blind firefly term and tonic "typing" sound once
+  // made her take off ~9 times per 20 s with nothing approaching (VALIDATION.md,
+  // 30 September 2026). Expected now: ~0.4 per 20 s.
+  await js(win, `__nf.client.input({ pointer: null }); __nf.state.lastEvents.length = 0; return true;`);
+  await sleep(20000);
+  const phantom = await js(win, `return __nf.state.lastEvents.filter((e) => e.kind === 'takeoff'
+    && ['loomL', 'loomR', 'sound', 'puff'].includes(e.trigger?.channel)).map((e) => e.trigger.channel);`);
+  report(phantom.length <= 3, 'the untouched live fly does not flee phantom threats',
+    `${phantom.length} sensory takeoffs in 20 s${phantom.length ? ` (${phantom.join(', ')})` : ''}`);
+
+  // The connectome view is cheap and must stay sharp: native resolution even
+  // while the terrarium lowers its own under load.
+  const renderQuality = await js(win, `return { brain: __nf.views.brain.pixelRatio, native: Math.min(Math.max(devicePixelRatio, 1), 2), terrarium: __nf.pixelRatio };`);
+  report(Math.abs(renderQuality.brain - renderQuality.native) < 0.001,
+    'the connectome view keeps its native resolution',
+    `${renderQuality.brain?.toFixed(2)}× connectome (native ${renderQuality.native?.toFixed(2)}×), ${renderQuality.terrarium?.toFixed(2)}× terrarium`);
+
+  const cameraModes = await js(win, `const v = __nf.views.terrarium; const controls = document.querySelectorAll('#hud .hud-tr button'); const result = [];
+    for (let i = 0; i < 4; i++) { result.push({ mode: v.cameraMode, label: controls[0].textContent.trim() }); controls[0].click(); }
+    controls[0].click(); controls[1].click(); const zoomed = v.orbit.zoom < 1;
+    controls[3].click(); return { result, expected: document.documentElement.lang.startsWith('de')
+      ? ['Übersicht', 'Folgekamera', 'Nahaufnahme', 'Draufsicht']
+      : ['Overview', 'Follow cam', 'Close cam', 'Overhead'],
+      zoomed, resetMode: v.cameraMode, resetZoom: v.orbit.zoom };`);
+  report(cameraModes.result.map((x) => x.mode).join(',') === 'overview,follow,close,overhead'
+    && cameraModes.result.every((x, i) => x.label === cameraModes.expected[i])
+    && cameraModes.zoomed && cameraModes.resetMode === 'overview' && cameraModes.resetZoom === 1,
+  'all four terrarium cameras have correct labels, zoom and reset',
+  `${cameraModes.result.map((x) => `${x.mode}:${x.label}`).join(', ')}; reset=${cameraModes.resetMode}/${cameraModes.resetZoom}`);
 
   await js(win, `document.getElementById('focusMode').click(); return true;`);
   const focused = await js(win, `return document.body.classList.contains('focus-mode') && document.getElementById('focusMode').getAttribute('aria-pressed') === 'true' && getComputedStyle(document.getElementById('panel')).display === 'none';`);
@@ -110,7 +137,7 @@ async function run(win) {
     await shot(win, `workspace-${i + 1}`);
     report(!!text && specimens && pageErrors.length === errorsBefore, `workspace ${i + 1} mounts`, text ? `"${text}…"` : 'empty panel');
     if (i === 6) {
-      const timing = await js(win, `const s = document.querySelector('#panel .timing-status'); return { state: s?.dataset.state, rows: document.querySelectorAll('#panel .timing-status + .kv dd').length, message: s?.textContent };`);
+      const timing = await js(win, `const s = document.querySelector('#panel .timing-status'); return { state: s?.dataset.state, rows: document.querySelectorAll('#panel .timing-status ~ .kv dd').length, message: s?.textContent };`);
       report(['paused', 'gap', 'measuring', 'behind', 'on-pace'].includes(timing.state)
         && timing.rows === 10 && !!timing.message,
       'the Model workspace exposes numerical run quality and lost simulation time',

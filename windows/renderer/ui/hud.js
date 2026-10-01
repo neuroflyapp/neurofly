@@ -5,6 +5,7 @@ import { h, icon } from './dom.js';
 import { t, num } from '../i18n.js';
 import { behaviourOf, EVENT_INFO, TRIGGER_INFO } from './labels.js';
 import { setText } from './widgets.js';
+import { cameraModeLabel } from '../view/terrarium.js';
 
 export function buildHud(ctx) {
   const root = document.getElementById('hud');
@@ -18,13 +19,17 @@ export function buildHud(ctx) {
     const tl = h('div', { class: 'hud-tl' }, beh, chips);
     const camBtn = h('button', { class: 'btn small', type: 'button', onclick: () => {
       const mode = ctx.views.terrarium.toggleCameraMode();
-      camBtn.replaceChildren(icon('camera', 15), h('span', {}, mode === 'follow' ? t('Follow cam') : t('Overview')));
-    } }, icon('camera', 15), h('span', {}, ctx.views.terrarium.cameraMode === 'follow' ? t('Follow cam') : t('Overview')));
-    camBtn.title = t('Switch between the overview and a camera that follows her');
+      camBtn.replaceChildren(icon('camera', 15), h('span', {}, t(cameraModeLabel(mode))));
+    } }, icon('camera', 15), h('span', {}, t(cameraModeLabel(ctx.views.terrarium.cameraMode))));
+    camBtn.title = t('Cycle through overview, follow, close and overhead cameras');
     const zoomIn = h('button', { class: 'btn small icon-only', type: 'button', title: t('Zoom in'), onclick: () => ctx.views.terrarium.setZoom(ctx.views.terrarium.orbit.zoom - 0.15) }, '+');
     const zoomOut = h('button', { class: 'btn small icon-only', type: 'button', title: t('Zoom out'), onclick: () => ctx.views.terrarium.setZoom(ctx.views.terrarium.orbit.zoom + 0.15) }, '–');
-    const tr = h('div', { class: 'hud-tr' }, camBtn, zoomIn, zoomOut);
-    const br = h('div', { class: 'hud-br' }, t('Drag the fly · move the cursor at her · right-drag to orbit'));
+    const reset = h('button', { class: 'btn small icon-only', type: 'button', title: t('Reset camera'), 'aria-label': t('Reset camera'), onclick: () => {
+      const mode = ctx.views.terrarium.resetCamera();
+      camBtn.replaceChildren(icon('camera', 15), h('span', {}, t(cameraModeLabel(mode))));
+    } }, '↺');
+    const tr = h('div', { class: 'hud-tr' }, camBtn, zoomIn, zoomOut, reset);
+    const br = h('div', { class: 'hud-br' }, t('Drag the fly · right-drag to orbit · Shift+right-drag to pan · wheel to zoom'));
     const toast = h('div', { class: 'why-toast', hidden: true, onclick: () => { if (lastShown) ctx.openEvent?.(lastShown); } });
     root.replaceChildren(tl, tr, br, toast);
     els = { beh, chips, toast, glyph: beh.querySelector('.glyph'), label: beh.querySelector('b'), detail: beh.querySelector('small') };

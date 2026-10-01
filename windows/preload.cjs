@@ -17,6 +17,7 @@ const on = (channel) => (fn) => {
 
 contextBridge.exposeInMainWorld('flyAPI', {
   getBrainData: () => ipcRenderer.invoke('brain-data'),
+  getBrainDataText: () => ipcRenderer.invoke('brain-data-text'),
   getSpecimenCatalog: () => ipcRenderer.invoke('specimen-catalog'),
   getSpecimenData: (id) => ipcRenderer.invoke('specimen-data', id),
   getSpecimenMorphology: (id, profileId) => ipcRenderer.invoke('specimen-morphology', id, profileId),

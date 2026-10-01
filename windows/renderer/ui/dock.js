@@ -80,7 +80,7 @@ export function buildDock(ctx) {
       body.append(h('div', { class: 'dock-page' }, h('div', { class: 'eye-wrap' },
         h('div', {}, h('p', { class: 'cap' }, t('What she sees — a real render from her head, 64 × 24 samples, 150°')), raw),
         h('div', {}, h('p', { class: 'cap' }, t('What reaches LC4/LPLC2 — motion energy after centre-surround')), motion)),
-        h('p', { class: 'note' }, t('Left half: her left eye. Only what lights up on the right drives the looming neurons; broad self-motion is cancelled by the centre-surround stage.')),
+        h('p', { class: 'note' }, t('Left half: her left eye. Only what lights up on the right drives the looming neurons: broad self-motion is cancelled by the centre-surround stage, and an efference copy of her own movement is subtracted as well (model).')),
         h('div', { class: 'row', style: { marginTop: '6px' } }, h('span', { class: 'note', dataset: { k: 'eyeval' } }))));
       ctx.views.terrarium.visionPreview = { rawCtx: raw.getContext('2d'), motionCtx: motion.getContext('2d') };
       els.eyeVal = body.querySelector('[data-k=eyeval]');
@@ -162,7 +162,7 @@ export function buildDock(ctx) {
       els.kv.replaceChildren(...rows.flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]));
     }
     if (tab === 'body' && now - gaitT > 50) { gaitT = now; drawGait(snap); }
-    if (tab === 'eye' && els.eyeVal) els.eyeVal.textContent = `${t('motion energy')} L ${num(snap.inputs.visionL * 100, 2)} · R ${num(snap.inputs.visionR * 100, 2)}`;
+    if (tab === 'eye' && els.eyeVal) els.eyeVal.textContent = `${t('motion energy')} L ${num(snap.inputs.visionL * 100, 2)} · R ${num(snap.inputs.visionR * 100, 2)} · ${t('own movement')} −${num((snap.inputs.efference ?? 0) * 100, 2)}`;
     void drawT;
   });
 

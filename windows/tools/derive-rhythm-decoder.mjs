@@ -130,7 +130,7 @@ const model = Object.fromEntries(DECODER_MODEL_KEYS.map((key) => [key, sim.param
 const used = new Set(decoders.flatMap((d) => d.cells.map((c) => c[0])));
 fs.writeFileSync(OUT, `${JSON.stringify({
   schema: 'neurofly-rhythm-decoder-1',
-  description: 'Premotor drive that moves each joint axis of each leg in the NeuroFly MaleCNS cord model, fitted from single-cell '
+  description: 'Premotor drive that moves each joint axis of each leg in the NeuroCause MaleCNS cord model, fitted from single-cell '
     + 'effects measured in that model (tools/derive-rhythm-decoder.mjs). Derived, model-dependent data, not an annotation: '
     + 'which cells rhythm-generating interneurons actually contact is not in the extracted subgraph.',
   locomotorContentSHA256,

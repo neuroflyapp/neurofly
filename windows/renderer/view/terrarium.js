@@ -12,7 +12,7 @@
 
 import * as THREE from '../../node_modules/three/build/three.module.js';
 import { buildFlyModel, SHADOWS_ENABLED } from '../../src/flymodel.js';
-import { World } from '../../src/world.js';
+import { World, DISPLAY_LAYER } from '../../src/world.js';
 import { applyPose, poseNodes } from '../../src/pose.js';
 import { clampf } from '../../src/util.js';
 import { circadianActivity } from '../../src/environment.js';
@@ -22,6 +22,34 @@ import { localMotionResidual } from '../../src/vision.js';
 const VISION_W = 64, VISION_H = 24;
 const VISION_EXPOSURE = 1;
 const MAP_LAYER = 1;
+const CAMERA_MODES = ['overview', 'follow', 'close', 'overhead'];
+export function cameraModeLabel(mode) {
+  if (mode === 'follow') return 'Follow cam';
+  if (mode === 'close') return 'Close cam';
+  if (mode === 'overhead') return 'Overhead';
+  return 'Overview';
+}
+// Fit the actual tank corners rather than a fixed multiple of the pane size.
+// The latter cropped the habitat badly on narrow panes and after rotation.
+export function overviewDistance(bounds, fov, aspect, azimuth, elevation) {
+  const v = Math.tan(fov * Math.PI / 360);
+  const h = v * aspect;
+  const ca = Math.cos(azimuth), sa = Math.sin(azimuth);
+  const ce = Math.cos(elevation), se = Math.sin(elevation);
+  let distance = 0;
+  for (const x of [-bounds.width / 2 - 8, bounds.width / 2 + 8]) {
+    for (const y of [-bounds.height / 2 - 8, bounds.height / 2 + 8]) {
+      for (const z of [0, 58]) {
+        const dz = z - 10;
+        const toward = ce * sa * x - ce * ca * y + se * dz;
+        const right = ca * x + sa * y;
+        const up = -se * sa * x + se * ca * y + ce * dz;
+        distance = Math.max(distance, toward + Math.abs(right) / h, toward + Math.abs(up) / v);
+      }
+    }
+  }
+  return Math.max(150, distance * 1.08);
+}
 const FLOOD_MAX_Z = 70;
 const SCENT_RADIUS = 260;
 const FLY_GRAB_RADIUS = 26;
@@ -85,7 +113,8 @@ export class TerrariumView {
     this.maxPixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
     this.snap = null;
     this.cameraMode = 'overview';
-    this.orbit = { azimuth: 0, elevation: Math.atan2(0.62, 0.72), zoom: 1 };
+    this.orbit = { azimuth: 0.42, elevation: 0.68, zoom: 1, panX: 0, panY: 0 };
+    this.orbitShown = { azimuth: 0.42, elevation: 0.68, zoom: 1, panX: 0, panY: 0 };
     this.viewBrightness = 1;
     this.autoNightLift = true;
     this.autoLiftGain = 1;
@@ -97,9 +126,10 @@ export class TerrariumView {
     this.visionEnabled = true;
 
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(50, this.bounds.width / this.bounds.height, 10, 4000);
+    this.camera = new THREE.PerspectiveCamera(42, this.bounds.width / this.bounds.height, 8, 6000);
     this.camera.up.set(0, 0, 1);
-    this.camera.layers.enable(MAP_LAYER);   // the user sees the map; the fly never does
+    this.camera.layers.enable(MAP_LAYER);
+    this.camera.layers.enable(DISPLAY_LAYER);
     this.followLookAt = new THREE.Vector3();
     this.groundRay = new THREE.Raycaster();
 
@@ -124,22 +154,25 @@ export class TerrariumView {
     this.key.position.set(0.2955 * 900, 0.3276 * 900, 0.8974 * 900);
     this.key.target.position.set(0, 0, 0);
     this.scene.add(this.key.target);
+    this.key.layers.enable(DISPLAY_LAYER);
     if (SHADOWS_ENABLED) {
       this.key.castShadow = true;
       this.key.shadow.mapSize.set(1024, 1024);
-      this.key.shadow.radius = 3;
-      this.key.shadow.bias = -0.0008;
+      this.key.shadow.radius = 2.6;
+      this.key.shadow.bias = -0.0006;
     }
     this.scene.add(this.key);
     this.ambientLight = new THREE.AmbientLight(0xffffff, 0.82);
+    this.ambientLight.layers.enable(DISPLAY_LAYER);
     this.scene.add(this.ambientLight);
     const skyCanvas = document.createElement('canvas');
-    skyCanvas.width = 2; skyCanvas.height = 256;
+    skyCanvas.width = 8; skyCanvas.height = 256;
     this.skyCtx = skyCanvas.getContext('2d');
     this.skyTex = new THREE.CanvasTexture(skyCanvas);
-    this.scene.add(new THREE.Mesh(new THREE.SphereGeometry(3000, 16, 16),
+    this.skyTex.colorSpace = THREE.SRGBColorSpace;
+    this.scene.add(new THREE.Mesh(new THREE.SphereGeometry(4200, 24, 16),
       new THREE.MeshBasicMaterial({ map: this.skyTex, side: THREE.BackSide, fog: false })));
-    this.scene.fog = new THREE.Fog(0x0b0d14, 500, 2600);
+    this.scene.fog = new THREE.Fog(0x0b0d14, 700, 3200);
   }
 
   _buildRenderer() {
@@ -167,13 +200,13 @@ export class TerrariumView {
   _buildWeather() {
     const b = this.bounds;
     // rain
-    this.RAIN_COUNT = 500;
+    this.RAIN_COUNT = 720;
     this.rainPos = new Float32Array(this.RAIN_COUNT * 3);
     this.rainVel = new Float32Array(this.RAIN_COUNT);
     for (let i = 0; i < this.RAIN_COUNT; i++) this._resetDrop(i);
     const rainGeo = new THREE.BufferGeometry();
     rainGeo.setAttribute('position', new THREE.BufferAttribute(this.rainPos, 3));
-    this.rainPoints = new THREE.Points(rainGeo, new THREE.PointsMaterial({ color: 0xbfe0ff, size: 3.2, transparent: true, opacity: 0.55 }));
+    this.rainPoints = new THREE.Points(rainGeo, new THREE.PointsMaterial({ color: 0xbfe0ff, size: 2.4, transparent: true, opacity: 0.62 }));
     this.rainPoints.visible = false;
     this.scene.add(this.rainPoints);
     // fire
@@ -282,39 +315,86 @@ export class TerrariumView {
   }
 
   // ---- camera ------------------------------------------------------------------
-  placeCamera() {
-    const baseD = Math.max(this.bounds.width, this.bounds.height) * 0.85;
-    const r = baseD * 0.9497 * this.orbit.zoom;
-    const ce = Math.cos(this.orbit.elevation), se = Math.sin(this.orbit.elevation);
-    const ca = Math.cos(this.orbit.azimuth), sa = Math.sin(this.orbit.azimuth);
-    this.camera.position.set(r * ce * sa, -r * ce * ca, r * se);
-    this.camera.lookAt(0, 0, 0);
-    this.camera.aspect = this.bounds.width / this.bounds.height;
-    this.camera.updateProjectionMatrix();
+  _easeOrbit(dt) {
+    const k = Math.min(1, dt * 7.5);
+    const s = this.orbitShown, o = this.orbit;
+    s.azimuth += (o.azimuth - s.azimuth) * k;
+    s.elevation += (o.elevation - s.elevation) * k;
+    s.zoom += (o.zoom - s.zoom) * k;
+    s.panX += (o.panX - s.panX) * k;
+    s.panY += (o.panY - s.panY) * k;
   }
 
-  setZoom(z) { this.orbit.zoom = clampf(z, 0.3, 3.5); if (this.cameraMode === 'overview') this.placeCamera(); }
+  _applyFov() {
+    const fov = this.cameraMode === 'close' ? 36 : this.cameraMode === 'overhead' ? 48 : this.cameraMode === 'follow' ? 40 : 42;
+    if (Math.abs(this.camera.fov - fov) > 0.01) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
+  }
+
+  placeCamera() {
+    const o = this.orbitShown;
+    const r = overviewDistance(this.bounds, this.camera.fov, this.camera.aspect, o.azimuth, o.elevation) * o.zoom;
+    const ce = Math.cos(o.elevation), se = Math.sin(o.elevation);
+    const ca = Math.cos(o.azimuth), sa = Math.sin(o.azimuth);
+    this.camera.up.set(0, 0, 1);
+    this.camera.position.set(o.panX + r * ce * sa, o.panY - r * ce * ca, 10 + r * se);
+    this.camera.lookAt(o.panX, o.panY, 10);
+  }
+
+  setZoom(z) {
+    this.orbit.zoom = clampf(z, 0.5, 3.2);
+  }
 
   toggleCameraMode() {
-    this.cameraMode = this.cameraMode === 'overview' ? 'follow' : 'overview';
-    if (this.cameraMode === 'overview') this.placeCamera();
+    const i = CAMERA_MODES.indexOf(this.cameraMode);
+    this.cameraMode = CAMERA_MODES[(i + 1) % CAMERA_MODES.length];
+    this._applyFov();
+    return this.cameraMode;
+  }
+
+  resetCamera() {
+    Object.assign(this.orbit, { azimuth: 0.42, elevation: 0.68, zoom: 1, panX: 0, panY: 0 });
+    this.cameraMode = 'overview';
+    this._applyFov();
     return this.cameraMode;
   }
 
   _updateFollowCamera(dt) {
     const f = this.snap?.fly;
     if (!f) return;
-    // Keep the animal in frame on narrow windows; the old look-ahead placed
-    // her behind the lower edge of the follow camera in portrait layouts.
-    const back = 125, up = 64, ahead = 22;
-    const hx = Math.cos(f.heading), hy = Math.sin(f.heading);
-    const k = Math.min(1, dt * 5);
+    const close = this.cameraMode === 'close';
+    const back = (close ? 58 : 112) * this.orbitShown.zoom;
+    const up = close ? 26 : 56;
+    const ahead = close ? 16 : 26;
+    const yaw = f.heading + this.orbitShown.azimuth * 0.35;
+    const hx = Math.cos(yaw), hy = Math.sin(yaw);
+    const k = Math.min(1, dt * 5.5);
     const c = this.camera.position;
+    this.camera.up.set(0, 0, 1);
     c.x += (f.x - hx * back - c.x) * k;
     c.y += (f.y - hy * back - c.y) * k;
     c.z += (f.z + up - c.z) * k;
-    this.followLookAt.set(f.x + hx * ahead, f.y + hy * ahead, f.z + 12);
+    this.followLookAt.set(f.x + hx * ahead, f.y + hy * ahead, f.z + (close ? 8 : 12));
     this.camera.lookAt(this.followLookAt);
+  }
+
+  _updateOverheadCamera(dt) {
+    const o = this.orbitShown;
+    const targetX = o.panX, targetY = o.panY;
+    const halfVertical = Math.tan(this.camera.fov * Math.PI / 360);
+    const height = Math.max(this.bounds.width / (2 * halfVertical * this.camera.aspect),
+      this.bounds.height / (2 * halfVertical)) * o.zoom * 1.12;
+    const k = Math.min(1, dt * 5);
+    const c = this.camera.position;
+    c.x += (targetX - c.x) * k;
+    c.y += (targetY - c.y) * k;
+    c.z += (height - c.z) * k;
+    // The normal Z-up camera is degenerate when looking vertically down Z.
+    // Y-up keeps north at the top instead of arbitrarily rotating the tank.
+    this.camera.up.set(0, 1, 0);
+    this.camera.lookAt(targetX, targetY, 0);
   }
 
   fitShadowCamera() {
@@ -339,10 +419,11 @@ export class TerrariumView {
     const sky = dayNightAt(hour);
     const grad = this.skyCtx.createLinearGradient(0, 0, 0, 256);
     grad.addColorStop(0, `#${sky.top.getHexString()}`);
-    grad.addColorStop(0.55, `#${sky.mid.getHexString()}`);
+    grad.addColorStop(0.42, `#${sky.mid.getHexString()}`);
+    grad.addColorStop(0.78, `#${sky.bottom.getHexString()}`);
     grad.addColorStop(1, `#${sky.bottom.getHexString()}`);
     this.skyCtx.fillStyle = grad;
-    this.skyCtx.fillRect(0, 0, 2, 256);
+    this.skyCtx.fillRect(0, 0, 8, 256);
     this.skyTex.needsUpdate = true;
     this.scene.fog.color.copy(sky.fog);
     this.renderer.setClearColor(sky.fog, 1);
@@ -413,17 +494,23 @@ export class TerrariumView {
   }
 
   // ---- per displayed frame -------------------------------------------------------------------
-  frame(dt, tSeconds) {
+  // `draw` false skips only the display render: every scene update and the
+  // eye's 20 Hz sample still happen, so the fly's vision does not change.
+  frame(dt, tSeconds, draw = true) {
     if (SHADOWS_ENABLED) this.renderer.shadowMap.needsUpdate = true;
     this.dayNightT += dt;
-    if (this.dayNightT > 20) { this.dayNightT = 0; this.updateDayNight(); }
+    if (this.dayNightT > 2) { this.dayNightT = 0; this.updateDayNight(); }
     this._animateWeather(dt, tSeconds);
     if (this.quake) { this.world.node.position.x = rnd(-3, 3); this.world.node.position.y = rnd(-3, 3); }
     else if (this.world.node.position.x || this.world.node.position.y) this.world.node.position.set(0, 0, 0);
-    if (this.cameraMode === 'follow') this._updateFollowCamera(dt);
+    this._easeOrbit(dt);
+    this._applyFov();
+    if (this.cameraMode === 'follow' || this.cameraMode === 'close') this._updateFollowCamera(dt);
+    else if (this.cameraMode === 'overhead') this._updateOverheadCamera(dt);
+    else this.placeCamera();
     this.visionT += dt;
     if (this.visionEnabled && this.visionT >= 0.05) { this.visionT = 0; this._renderEye(); }
-    this.renderer.render(this.scene, this.camera);
+    if (draw) this.renderer.render(this.scene, this.camera);
   }
 
   _animateWeather(dt, t) {
@@ -557,7 +644,11 @@ export class TerrariumView {
     this.drag = null;
     el.addEventListener('pointerdown', (e) => {
       if (e.button === 2) {
-        if (this.cameraMode === 'overview') this.drag = { kind: 'camera', x: e.clientX, y: e.clientY };
+        if (this.cameraMode === 'overview') this.drag = { kind: e.shiftKey ? 'pan' : 'camera', x: e.clientX, y: e.clientY };
+        return;
+      }
+      if (e.button === 1) {
+        if (this.cameraMode === 'overview' || this.cameraMode === 'overhead') this.drag = { kind: 'pan', x: e.clientX, y: e.clientY };
         return;
       }
       if (e.button !== 0) return;
@@ -597,7 +688,18 @@ export class TerrariumView {
         this.drag.x = e.clientX; this.drag.y = e.clientY;
         this.orbit.azimuth -= dx * 0.006;
         this.orbit.elevation = clampf(this.orbit.elevation - dy * 0.006, 0.08, 1.45);
-        this.placeCamera();
+        return;
+      }
+      if (this.drag?.kind === 'pan') {
+        const dx = e.clientX - this.drag.x, dy = e.clientY - this.drag.y;
+        this.drag.x = e.clientX; this.drag.y = e.clientY;
+        const distance = this.cameraMode === 'overhead'
+          ? this.camera.position.z
+          : overviewDistance(this.bounds, this.camera.fov, this.camera.aspect, this.orbitShown.azimuth, this.orbitShown.elevation) * this.orbitShown.zoom;
+        const scale = 2 * distance * Math.tan(this.camera.fov * Math.PI / 360) / this.bounds.height;
+        const ca = Math.cos(this.orbitShown.azimuth), sa = Math.sin(this.orbitShown.azimuth);
+        this.orbit.panX = clampf(this.orbit.panX - dx * scale * ca - dy * scale * sa, -this.bounds.width / 2, this.bounds.width / 2);
+        this.orbit.panY = clampf(this.orbit.panY - dx * scale * sa + dy * scale * ca, -this.bounds.height / 2, this.bounds.height / 2);
         return;
       }
       const p = inside || this.drag ? this.projectToGround(e.clientX, e.clientY) : null;
@@ -612,15 +714,14 @@ export class TerrariumView {
     });
     el.addEventListener('pointerleave', () => { if (!this.drag) this.onPointer?.(null); });
     window.addEventListener('pointerup', (e) => {
-      if (e.button === 2) { if (this.drag?.kind === 'camera') this.drag = null; return; }
-      if (this.drag && this.drag.kind !== 'camera') this.onCommand('drag.end', {});
+      if (e.button === 2 || e.button === 1) { if (this.drag?.kind === 'camera' || this.drag?.kind === 'pan') this.drag = null; return; }
+      if (this.drag && this.drag.kind !== 'camera' && this.drag.kind !== 'pan') this.onCommand('drag.end', {});
       else if (!this.drag && this.downPoint && e.target === el) this.onTap?.(this.downPoint);
       this.drag = null;
       this.downPoint = null;
     });
     el.addEventListener('wheel', (e) => {
       e.preventDefault();
-      if (this.cameraMode !== 'overview') return;
       this.setZoom(this.orbit.zoom + e.deltaY * 0.0004);
       this.onZoom?.(this.orbit.zoom);
     }, { passive: false });
@@ -631,8 +732,9 @@ export class TerrariumView {
     if (w === this.bounds.width && h === this.bounds.height) return false;
     this.bounds = { width: w, height: h };
     this.renderer.setSize(w, h);
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
     if (this.cameraMode === 'overview') this.placeCamera();
-    else { this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); }
     this.fitMapOverlay();
     this.fitShadowCamera();
     this.world.resize(this.bounds);

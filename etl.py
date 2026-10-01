@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NeuroFly's brain circuit, extracted from the FlyWire Codex v783 tables.
+"""The fly model's brain circuit, extracted from the FlyWire Codex v783 tables.
 
 Reads four gzipped CSV tables from <raw_dir>:
   classification.csv.gz          root_id, flow, super_class, class, sub_class, hemilineage, side, nerve
@@ -25,7 +25,7 @@ from collections import Counter, defaultdict
 RAW_DIR = sys.argv[1] if len(sys.argv) > 1 else "."
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
-# FlyWire primary_type -> NeuroFly role slug. Matched on primary_type only:
+# FlyWire primary_type -> role slug of the fly model. Matched on primary_type only:
 # matching additional types too pulled in near misses (DNp71 as DNp09,
 # DNae001 as DNa01).
 CORE_TYPES = {

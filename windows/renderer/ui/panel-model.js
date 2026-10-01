@@ -42,6 +42,7 @@ export const modelPanel = {
         h('div', {}, tag('model'), ' ', t('leaky integrate-and-fire dynamics at 1 ms, 20 ms membrane time constant, noise and tonic drive')),
         h('div', {}, tag('model'), ' ', t('per-synapse strength: 0.0002 of threshold in the core circuit; 0.0062 in the taste and grooming pathways, peak-matched to the whole-brain FlyWire model of Shiu et al. (2024)')),
         h('div', {}, tag('model'), ' ', t('how light, sound, wind, heat, taste and dust are turned into receptor drive')),
+        h('div', {}, tag('model'), ' ', t('early vision: motion energy in her rendered eye after a centre-surround stage, minus an efference copy of her own expected self-motion (Kim, Fitzgerald & Maimon 2015), drives the looming neurons')),
         h('div', {}, tag('model'), ' ', t('the brain–nerve-cord interface (female brain, male nerve cord: a population-rate bridge, no cross-specimen synapses)')),
         h('div', {}, tag('model'), ' ', t('the body: legs, flight, grooming and feeding animation, health'))),
       h('p', { class: 'note' }, t('Everything tagged "model" is a stated assumption, written down in the code and the documentation, so it can be checked and changed.')));
@@ -55,8 +56,12 @@ export const modelPanel = {
     const perfGrid = h('dl', { class: 'kv' },
       ...perfFields.flatMap((label, i) => [h('dt', {}, t(label)), perfValues[i]]));
     const timingStatus = h('p', { class: 'timing-status', role: 'status', 'aria-live': 'polite' });
+    // Measured on the reference machine: 0.5x (and 0.25x) run without gaps
+    // (VALIDATION.md, 30 September 2026). Offered only while a run lags.
+    const slowerPace = h('button', { type: 'button', class: 'btn slower-pace', hidden: true,
+      title: t('Measured without gaps on slower computers'), onclick: () => ctx.command('speed', { factor: 0.5 }) }, t('Run at 0.5×'));
     const perf = card(t('Performance'), { iconName: 'spark', tagEl: tag('measured') },
-      timingStatus, perfGrid,
+      timingStatus, slowerPace, perfGrid,
       h('p', { class: 'note' }, t('The live fly and experiments use separate worker threads; the display only draws. CPU cores are assigned by the operating system.')));
 
     const readiness = card(t('Research readiness'), { iconName: 'model', tagEl: tag('model') },
@@ -81,7 +86,9 @@ export const modelPanel = {
 
     const about = card(t('About'), {},
       kv([[t('Version'), MODEL_VERSION], [t('Code'), 'PolyForm Noncommercial 1.0.0'], [t('FlyWire data'), 'CC BY-NC 4.0'], [t('MaleCNS data'), 'CC BY 4.0'], [t('Website'), 'neuro-cause.com']]),
-      h('p', { class: 'note' }, t('Because the FlyWire data are licensed for non-commercial use, NeuroCause is free and carries no advertising.')));
+      h('p', { class: 'note' }, t('Because the FlyWire data are licensed for non-commercial use, NeuroCause is free and carries no advertising.')),
+      h('p', { class: 'note' }, t('Supporters of the lab may be invited to try pre-releases before they are public.'), ' ',
+        link('https://neuro-cause.com/#support', t('Support NeuroCause'))));
 
     const el = h('div', {}, panelHead(t('Model'), t('Where every number comes from.'),
       t('The fly model is built on measured anatomy. This page separates what was measured from what was assumed.')),
@@ -102,8 +109,10 @@ export const modelPanel = {
         const message = t(messages[state]);
         if (timingStatus.dataset.state !== state) timingStatus.dataset.state = state;
         if (timingStatus.textContent !== message) timingStatus.textContent = message;
+        const offerSlower = (state === 'gap' || state === 'behind') && (snap.speed ?? 1) > 0.5;
+        if (slowerPace.hidden === offerSlower) slowerPace.hidden = !offerSlower;
         const values = [
-          `${num(ctx.fps ?? 0, 0)} fps`,
+          (ctx.displayStride ?? 1) > 1 ? `${num(ctx.fps ?? 0, 0)} fps · ${t('simulation first')}` : `${num(ctx.fps ?? 0, 0)} fps`,
           `${num(snap.speed ?? 1, 2)}×`,
           `${num(pr.simulationRealtime ?? 0, 2)}×`,
           `${num(pr.coreRealtime ?? 0, 1)}× ${t('real time')}`,

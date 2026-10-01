@@ -21,7 +21,7 @@ import { sentiencePanel } from './ui/panel-sentience.js';
 import { dataPanel } from './ui/panel-data.js';
 import { modelPanel } from './ui/panel-model.js';
 import { specimensPanel } from './ui/panel-specimens.js';
-import { AdaptiveRenderQuality } from '../src/performance.js';
+import { AdaptiveRenderQuality, DisplayPacer } from '../src/performance.js';
 
 const api = window.flyAPI;
 const bootLine = document.getElementById('bootLine');
@@ -71,8 +71,18 @@ if (new URLSearchParams(location.search).get('debug') === '1') window.__nf = Obj
 const panels = [livePanel, stimulatePanel, circuitPanel, experimentsPanel, sentiencePanel, dataPanel, modelPanel, specimensPanel];
 
 (async () => {
+  // Start-up phases in milliseconds since the page's own start, kept for
+  // diagnosing slow machines (read with window.__nf.bootTimings in debug).
+  const bootTimings = ctx.bootTimings = {};
+  const mark = (name) => { bootTimings[name] = Math.round(performance.now()); };
+  mark('script');
   boot('Loading the connectome…', 0.08);
-  const data = await api.getBrainData();
+  // As text: one string crosses into the page and on to both workers, each of
+  // which parses its own copy (main.js 'brain-data-text').
+  const dataText = api.getBrainDataText ? await api.getBrainDataText() : null;
+  const data = dataText ? JSON.parse(dataText) : await api.getBrainData();
+  ctx.dataText = dataText;
+  mark('data');
   if (!data) {
     boot('No connectome data found. Run the ETL scripts first (see README).', 1);
     return;
@@ -85,12 +95,13 @@ const panels = [livePanel, stimulatePanel, circuitPanel, experimentsPanel, senti
   const bounds = { width: Math.max(300, terrariumEl.clientWidth), height: Math.max(200, terrariumEl.clientHeight) };
   let info;
   try {
-    info = await client.init(data, bounds, undefined, undefined, { startPaused: true });
+    info = await client.init(dataText ?? data, bounds, undefined, undefined, { startPaused: true });
   } catch (error) {
     boot(`${t('The simulation could not start:')} ${error.message}`, 1);
     return;
   }
   ctx.info = info;
+  mark('worker');
   boot('Building the terrarium and the brain view…', 0.7);
 
   ctx.views.terrarium = new TerrariumView(terrariumEl, {
@@ -110,6 +121,7 @@ const panels = [livePanel, stimulatePanel, circuitPanel, experimentsPanel, senti
     },
   });
 
+  mark('views');
   // ---- layout: shell, panels, dock, inspector, HUD ----
   const shell = buildShell(ctx, panels);
   ctx.shell = shell;
@@ -126,8 +138,10 @@ const panels = [livePanel, stimulatePanel, circuitPanel, experimentsPanel, senti
 
   // ---- frames from the simulation ----
   const quality = new AdaptiveRenderQuality({ minPixelRatio: 0.75, maxPixelRatio: Math.min(window.devicePixelRatio || 1, 1.5) });
-  let fpsFrames = 0, fpsT = performance.now(), fps = 0;
+  const pacer = ctx.pacer = new DisplayPacer();
+  let fpsFrames = 0, drawnFrames = 0, fpsT = performance.now(), fps = 0;
   client.onFrame((snap) => {
+    if (!ctx.snap) mark('firstFrame');
     ctx.snap = snap;
     ctx.views.terrarium.applySnapshot(snap);
     ctx.views.brain.addSpikes(snap.spikes);
@@ -150,16 +164,25 @@ const panels = [livePanel, stimulatePanel, circuitPanel, experimentsPanel, senti
     last = now;
     fpsFrames++;
     if (tMs - fpsT >= 1000) {
-      fps = fpsFrames * 1000 / (tMs - fpsT); fpsFrames = 0; fpsT = tMs;
-      ctx.fps = fps;
+      fps = fpsFrames * 1000 / (tMs - fpsT);
+      ctx.fps = drawnFrames * 1000 / (tMs - fpsT);   // what the observer sees
+      fpsFrames = 0; drawnFrames = 0; fpsT = tMs;
       const perf = ctx.snap?.perf;
-      const next = quality.observe({ fps, simulationRealtime: perf && !ctx.snap.paused ? Math.min(perf.simulationRealtime / Math.max(0.1, ctx.snap.speed), 1) : 1, droppedSecondsPerSecond: ctx.snap?.paused ? 0 : (perf?.droppedSecondsPerSecond ?? 0) });
+      const pace = {
+        simulationRealtime: perf && !ctx.snap.paused ? Math.min(perf.simulationRealtime / Math.max(0.1, ctx.snap.speed), 1) : 1,
+        droppedSecondsPerSecond: ctx.snap?.paused ? 0 : (perf?.droppedSecondsPerSecond ?? 0),
+      };
+      // Real-time neural pace first: fewer drawn frames, then fewer pixels in
+      // the terrarium. The connectome view stays at native resolution.
+      ctx.displayStride = pacer.observe(pace);
+      const next = quality.observe({ fps, ...pace });
       ctx.views.terrarium.setPixelRatio(next);
-      ctx.views.brain.setPixelRatio(next);
       ctx.pixelRatio = next;
     }
-    ctx.views.terrarium.frame(dt, now);
-    ctx.views.brain.frame(tMs);
+    const draw = pacer.shouldDraw();
+    if (draw) drawnFrames++;
+    ctx.views.terrarium.frame(dt, now, draw);
+    if (draw) ctx.views.brain.frame(tMs);
     dock.frame(dt);
     hud.frame(dt);
   };
@@ -175,6 +198,7 @@ const panels = [livePanel, stimulatePanel, circuitPanel, experimentsPanel, senti
   }).observe(terrariumEl);
 
   inspector.ready();
+  mark('interface');
   boot('Ready.', 1);
   // All views and frame listeners are mounted before the first neural tick.
   // The worker discards paused wall time instead of counting boot work as

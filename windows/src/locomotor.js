@@ -99,6 +99,13 @@ export function validateLocomotorCircuit(circuit) {
   return true;
 }
 
+function poolActivation(rates, cells) {
+  let sum = 0;
+  for (let k = 0; k < cells.length; k++) sum += rates[cells[k]];
+  const r = sum / Math.max(1, cells.length);
+  return r / (r + 50);
+}
+
 export class LocomotorSim {
   constructor(circuit, parameters = {}) {
     // rhythm: false switches the stepping rules off (rhythm.js; otherwise
@@ -176,6 +183,11 @@ export class LocomotorSim {
     }
     this.sensory = Int32Array.from(this.sensory);
     this.roleCode = Uint8Array.from(neurons, (nr) => (nr.role === 'motor' ? ROLE_MOTOR : nr.role === 'sensory' ? ROLE_SENSORY : ROLE_OTHER));
+    // Per leg and muscle action, the motor pools (cell lists in their original
+    // order) whose activation drives it, so updateMotorCommands() needs no
+    // string lookups.
+    this._actionPools = this.motorGroups.map((pools) =>
+      ACTION_POOLS.map(([, names]) => names.map((name) => Int32Array.from(pools.get(name) || []))));
   }
 
   // Decoder slots: (leg * 3 + axis) * 2 + (direction > 0 ? 0 : 1), each the
@@ -302,7 +314,10 @@ export class LocomotorSim {
     }
   }
 
-  step(ms) {
+  // `commands` false leaves the leg motor commands to a later
+  // updateMotorCommands(): LIFSim steps the cord one millisecond at a time but
+  // the body reads the commands only once its whole step is done.
+  step(ms, commands = true) {
     if (!(ms > 0)) return;
     const n = this.n, baseline = this.parameters.baseline, kick = this.parameters.adaptationKick;
     const voltage = this.voltage, adaptation = this.adaptation, rates = this.rates, refractory = this.refractory;
@@ -343,26 +358,21 @@ export class LocomotorSim {
         }
       }
     }
-    this._motorCommands();
+    if (commands) this.updateMotorCommands();
   }
 
   // Muscle activation per leg: a pool's mean rate r becomes r / (r + 50)
-  // (half activation at 50 Hz).
-  _motorCommands() {
+  // (half activation at 50 Hz); an action takes its strongest pool.
+  updateMotorCommands() {
     const rates = this.rates;
-    const activation = (cells) => {
-      let sum = 0;
-      for (const i of cells) sum += rates[i];
-      const r = sum / Math.max(1, cells.length);
-      return r / (r + 50);
-    };
     for (let leg = 0; leg < 6; leg++) {
-      const pools = this.motorGroups[leg];
+      const actions = this._actionPools[leg];
       const command = {};
-      for (const [action, names] of ACTION_POOLS) {
-        let level = activation(pools.get(names[0]) || []);
-        for (let k = 1; k < names.length; k++) level = Math.max(level, activation(pools.get(names[k]) || []));
-        command[action] = level;
+      for (let a = 0; a < ACTION_POOLS.length; a++) {
+        const pools = actions[a];
+        let level = poolActivation(rates, pools[0]);
+        for (let k = 1; k < pools.length; k++) level = Math.max(level, poolActivation(rates, pools[k]));
+        command[ACTION_POOLS[a][0]] = level;
       }
       this.commands[leg] = command;
     }

@@ -57,12 +57,13 @@ const SUPER_CLASS_LABELS = {
 // size and opacity per object, so every population was its own draw call (34
 // clouds, plus up to 48 flash spheres): now all populations are one draw call
 // and all flashes another, with the same size, colour and blending maths per
-// point. `round` draws discs — the flashes were unlit spheres, which render as
-// discs; the populations keep the stock square points.
+// point. `round` draws discs with an edge smoothed over one screen pixel
+// (fwidth), so each soma stays a crisp dot at any size instead of a hard,
+// stair-stepped square or disc; MSAA does not smooth the inside of a point.
 // Normal alpha compositing preserves anatomical colour and fine structure in
 // dense central regions. Additive blending saturated thousands of overlapping
 // somata into a white patch, hiding the measured positions and live flashes.
-function spritePoints(count, { round = false, blending = THREE.NormalBlending } = {}) {
+function spritePoints(count, { round = true, blending = THREE.NormalBlending } = {}) {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
   g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
@@ -75,9 +76,9 @@ function spritePoints(count, { round = false, blending = THREE.NormalBlending } 
       .replace('void main() {', 'attribute float pSize;\nattribute float pAlpha;\nvarying float vAlpha;\nvoid main() {\n\tvAlpha = pAlpha;')
       .replace('gl_PointSize = size;', 'gl_PointSize = size * pSize;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('void main() {', `varying float vAlpha;\nvoid main() {\n\tif ( vAlpha <= 0.0 ) discard;${round
-        ? '\n\tvec2 pc = gl_PointCoord - 0.5;\n\tif ( dot( pc, pc ) > 0.25 ) discard;' : ''}`)
-      .replace('#include <color_fragment>', '#include <color_fragment>\n\tdiffuseColor.a *= vAlpha;');
+      .replace('void main() {', `varying float vAlpha;\nvoid main() {\n\tif ( vAlpha <= 0.0 ) discard;\n\tfloat nfEdge = 1.0;${round
+        ? '\n\tfloat nfR = length( gl_PointCoord - 0.5 ) * 2.0;\n\tfloat nfAA = max( fwidth( nfR ), 1e-4 );\n\tnfEdge = 1.0 - smoothstep( 1.0 - nfAA, 1.0, nfR );\n\tif ( nfEdge <= 0.0 ) discard;' : ''}`)
+      .replace('#include <color_fragment>', '#include <color_fragment>\n\tdiffuseColor.a *= vAlpha * nfEdge;');
   };
   m.customProgramCacheKey = () => (round ? 'nf-points-round' : 'nf-points');
   return new THREE.Points(g, m);
@@ -102,7 +103,10 @@ export class BrainView {
     this.camera.position.set(0, 0.6, 29);
     this.zoom = 29;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    this.maxPixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
+    // Always the display's own resolution (up to 2x): this view costs ~0.5 ms a
+    // frame, so drawing it at 0.75x under load saved nothing and made every
+    // soma a blurred, upscaled blob. Only the terrarium's resolution adapts.
+    this.maxPixelRatio = Math.min(Math.max(window.devicePixelRatio || 1, 1), 2);
     this.pixelRatio = this.maxPixelRatio;
     this.renderer.setPixelRatio(this.pixelRatio);
     this.renderer.setSize(w, h);
@@ -121,7 +125,31 @@ export class BrainView {
     this.synapsesVisible = true;
     this._build(points, circuit);
     this._bind();
+    // The brain fills its panel: the camera distance follows the panel's shape
+    // until the user zooms with the wheel.
+    this.userZoomed = false;
+    this.zoom = this._fitDistance();
+    this.camera.position.z = this.zoom;
     new ResizeObserver(() => this.resize()).observe(container);
+  }
+
+  // Distance at which the brain fits the view. It turns about its vertical
+  // axis, so its horizontal extent is the radius around that axis; points that
+  // swing to the front come closer, hence the added depth. The 98th percentile,
+  // not the maximum: a few far-flung partner cells would otherwise shrink the
+  // whole brain to a quarter of its panel.
+  _fitDistance() {
+    const pos = this.cloud.geometry.attributes.position.array;
+    const count = pos.length / 3, radial = new Float32Array(count), vertical = new Float32Array(count);
+    for (let k = 0; k < count; k++) {
+      radial[k] = Math.hypot(pos[3 * k], pos[3 * k + 2]);
+      vertical[k] = Math.abs(pos[3 * k + 1]);
+    }
+    const q = (a) => a.sort()[Math.min(a.length - 1, Math.floor(0.98 * a.length))];
+    const rH = q(radial), hy = q(vertical);
+    const tanV = Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2);
+    const tanH = tanV * Math.max(0.2, this.camera.aspect);
+    return clampf(Math.max(hy / tanV, rH / tanH) + 0.6 * rH, 3, 70);
   }
 
   _build(points, circuit) {
@@ -495,10 +523,13 @@ export class BrainView {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
+    if (!this.userZoomed) this.zoom = this._fitDistance();
   }
 
+  // The film renderers (motion.js, reels.js) set their own fixed resolution;
+  // the live Studio keeps the display's native one (see the constructor).
   setPixelRatio(ratio) {
-    const next = Math.max(0.75, Math.min(this.maxPixelRatio, ratio));
+    const next = Math.max(0.5, Math.min(2, ratio));
     if (Math.abs(next - this.pixelRatio) < 0.001) return;
     this.pixelRatio = next;
     this.renderer.setPixelRatio(next);
@@ -524,7 +555,7 @@ export class BrainView {
     });
     c.addEventListener('pointerenter', () => { this.hovering = true; this.idle = 0; });
     c.addEventListener('pointerleave', () => { this.hovering = false; this.dragging = false; });
-    c.addEventListener('wheel', (e) => { e.preventDefault(); this.idle = 0; this.hovering = true; this.zoom = clampf(this.zoom + e.deltaY * 0.025, 3, 70); }, { passive: false });
+    c.addEventListener('wheel', (e) => { e.preventDefault(); this.idle = 0; this.hovering = true; this.userZoomed = true; this.zoom = clampf(this.zoom + e.deltaY * 0.025, 3, 70); }, { passive: false });
   }
 
   _pick(ev) {

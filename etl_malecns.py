@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""NeuroFly's nerve-cord circuit: a bounded, anatomically identified leg
+"""The fly model's nerve-cord circuit: a bounded, anatomically identified leg
 circuit extracted from the public MaleCNS v1.0 tables.
 
 Needs numpy, pandas and pyarrow. The raw tables stay outside the repository:

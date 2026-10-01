@@ -45,7 +45,7 @@ export function createSpecimenStore(dir = DEFAULT) {
       return { checkedAt: raw.checkedAt, files: raw.files || [], morphology: raw.morphology || null,
         archive, publicSources, rawSources, coverage: RESEARCH_COVERAGE,
         currentRuntime: { brain: 'fafb-v783', cord: 'malecns-v1', status: 'cross-specimen-model' },
-        profiles: ['banc-v888', 'malecns-v1', 'fafb-v783'].map(id => {
+        profiles: ['banc-v888', 'malecns-v1', 'manc-v1.0', 'fafb-v783', 'optic-lobe-v1.1', 'hemibrain-v1.2', 'l1em-winding-2023'].map(id => {
           const published = raw.profiles?.find(p => p.id === id);
           return { ...SPECIMENS[id], ...published, runtimeReady: false,
             status: published?.sha256 && fs.existsSync(path.join(dir, `${id}.json`)) ? 'anatomy-ready' : 'not-imported' };
@@ -89,7 +89,7 @@ export function createSpecimenStore(dir = DEFAULT) {
     morphology(id, profileId = 'fafb-v783') {
       if (typeof id !== 'string' || !/^\d{1,24}$/.test(id)) throw new Error('Invalid neuron ID');
       if (!Object.hasOwn(SPECIMENS, profileId)) throw new Error('Unknown morphology specimen');
-      const prefix = { 'fafb-v783': 'fafb', 'malecns-v1': 'malecns', 'banc-v888': 'banc' }[profileId];
+      const prefix = { 'fafb-v783': 'fafb', 'malecns-v1': 'malecns', 'manc-v1.0': 'manc', 'banc-v888': 'banc', 'optic-lobe-v1.1': 'optic-lobe', 'hemibrain-v1.2': 'hemibrain', 'l1em-winding-2023': 'l1em-winding-2023' }[profileId];
       const specimen = SPECIMENS[profileId].specimen;
       const expected = (profileId === 'fafb-v783' ? readCatalog().morphology : readCatalog().morphologies?.[profileId])?.sha256;
       if (!expected) return null;

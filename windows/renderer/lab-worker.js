@@ -57,7 +57,7 @@ async function runProtocol({ runId, protocolId, params, seed }) {
 
 onmessage = async (event) => {
   const m = event.data;
-  if (m.type === 'init') { data = m.data; postMessage({ type: 'ready' }); return; }
+  if (m.type === 'init') { data = m.data ?? JSON.parse(m.dataText); postMessage({ type: 'ready' }); return; }
   if (m.type === 'cancel') { cancelled = true; return; }
   if (m.type === 'run') {
     if (busy) { postMessage({ type: 'failed', runId: m.runId, message: 'busy' }); return; }

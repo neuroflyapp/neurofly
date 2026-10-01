@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 
 import { loadBrainData } from './src/data.js';
 import { createSpecimenService } from './src/specimen-service.js';
-import { circadianActivity } from './src/environment.js';
+import { circadianActivity, InputDisturbance } from './src/environment.js';
 import { createSaveService } from './src/save-io.js';
 import { recordingState, recordingExitPolicy } from './src/recording-guard.js';
 
@@ -36,7 +36,7 @@ if (!primaryInstance) app.quit();
 let win = null;
 let tray = null;
 let paused = false;
-let typingLevel = 0;
+const disturbance = new InputDisturbance();
 let recordingStatus = recordingState();
 let quitApproved = false;
 // Main-process texts follow the system language (the renderer's own
@@ -64,6 +64,7 @@ function allowRecordingExit(action) {
 }
 
 let brainData = null;
+let brainDataText = null;   // the same bundle as JSON, serialized once (see 'brain-data-text')
 let dataInfo = 'no data — run etl.py';
 
 function createWindow() {
@@ -163,13 +164,14 @@ function refreshTray() {
 
 // ---- the operating-system senses (they need Electron's powerMonitor) --------
 // Everything else the fly senses comes from the page itself. From the idle
-// timer: "typing" (input within the last second, smoothed per poll), and
-// "sleepy" (idle over 10 minutes at night, 22-6 h, or over 30 minutes at any
-// time). The hour also sets the circadian activity level.
-const NIGHT_IDLE_S = 600, ANY_IDLE_S = 1800, TYPING_SMOOTHING = 0.15;
+// timer: "typing" (a brief disturbance when input resumes after a quiet
+// spell; see InputDisturbance), and "sleepy" (idle over 10 minutes at night,
+// 22-6 h, or over 30 minutes at any time). The hour also sets the circadian
+// activity level.
+const NIGHT_IDLE_S = 600, ANY_IDLE_S = 1800, AMBIENT_POLL_S = 1 / 30;
 function pollAmbient() {
   const idleSeconds = powerMonitor.getSystemIdleTime();
-  typingLevel += ((idleSeconds < 1 ? 1 : 0) - typingLevel) * TYPING_SMOOTHING;
+  const typingLevel = disturbance.poll(idleSeconds, AMBIENT_POLL_S);
   const now = new Date();
   const hour = now.getHours() + now.getMinutes() / 60;
   const night = hour >= 22 || hour < 6;
@@ -226,10 +228,18 @@ app.whenReady().then(() => {
   });
   refreshTray();
 
-  setInterval(pollAmbient, 1000 / 30);
+  setInterval(pollAmbient, AMBIENT_POLL_S * 1000);
 });
 
 ipcMain.handle('brain-data', () => brainData);
+// The page and its two simulation workers each need the whole bundle. One
+// string crosses the process and thread boundaries almost for free, while
+// structured-cloning its ~800,000 small edge arrays took seconds per copy on
+// the 4-core test machine; JSON.parse rebuilds exactly the same values.
+ipcMain.handle('brain-data-text', () => {
+  if (brainData && brainDataText === null) brainDataText = JSON.stringify(brainData);
+  return brainDataText;
+});
 const specimens = createSpecimenService();
 ipcMain.handle('specimen-catalog', () => specimens.catalog());
 ipcMain.handle('specimen-data', (_event, id) => specimens.load(id));

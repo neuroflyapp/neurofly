@@ -130,7 +130,7 @@ def fetch(url, target, prior=None):
         raise ValueError("Refusing symlink download target")
     if anchored and target.is_file() and target.stat().st_size == prior["bytes"] and sha256(target) == prior["sha256"]:
         return "present-verified"
-    request = urllib.request.Request(url, headers={"User-Agent": "NeuroFly data fetch"})
+    request = urllib.request.Request(url, headers={"User-Agent": "NeuroCause data fetch"})
     with urllib.request.urlopen(request, timeout=60) as response:
         expected = int(response.headers.get("Content-Length") or 0)
         partial = target.with_name(target.name + ".partial")

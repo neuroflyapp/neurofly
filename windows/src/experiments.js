@@ -31,6 +31,7 @@ export const LITERATURE = Object.freeze({
   hamada2008: { cite: 'Hamada et al. (2008) Nature 454:217', doi: 'https://doi.org/10.1038/nature07001' },
   sayeed1996: { cite: 'Sayeed & Benzer (1996) PNAS 93:6079', doi: 'https://doi.org/10.1073/pnas.93.12.6079' },
   simoes2021: { cite: 'Simões et al. (2021) Nat Commun 12:2044', doi: 'https://doi.org/10.1038/s41467-021-22322-w' },
+  kim2015: { cite: 'Kim, Fitzgerald & Maimon (2015) Nat Neurosci 18:1247', doi: 'https://doi.org/10.1038/nn.4083' },
   engel1996: { cite: 'Engel & Wu (1996) J Neurosci 16:3486', doi: 'https://pubmed.ncbi.nlm.nih.gov/8627381/' },
   ueno2017: { cite: 'Ueno et al. (2017) eLife 6:e21076', doi: 'https://elifesciences.org/articles/21076' },
   gibbons2022: { cite: 'Gibbons et al. (2022) Adv Insect Physiol 63:155', doi: 'https://doi.org/10.1016/bs.aiip.2022.10.001' },

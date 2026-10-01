@@ -37,6 +37,17 @@ const FLY_GRAB_RADIUS = 26;
 const FLOOD_MAX_Z = 70;
 const SCENT_RADIUS = 260;
 const TRACE_HZ = 20;
+// Efference copy on the rendered eye's looming signal (modelled; visual
+// neurons of flying and walking flies receive motor-related signals that
+// cancel expected self-motion, Kim, Fitzgerald & Maimon 2015,
+// doi:10.1038/nn.4083): the self-motion residual the centre-surround stage
+// leaves in this terrarium is subtracted before the looming gain. Measured
+// 2026-09-30 in the app on the idle fly (raw residual per eye, 50 ms samples):
+// resting p99 0.029; walking p50 0.018, p90 0.033, p99 0.057; flying p50 0.045,
+// p99 0.094. Without it 19% of walking samples crossed the escape threshold
+// (0.028 raw at gain 5) and the fly took off every few seconds with nothing
+// approaching. An approaching object leaves 0.05-0.2 and still gets through.
+const EFFERENCE_WALK = 0.04, EFFERENCE_FLY = 0.09, EFFERENCE_DECAY_S = 0.15;
 
 // Named-circuit stimulation: the strengths/durations the behavior test suite
 // uses, so a panel button and its equivalent test do the same thing.
@@ -119,6 +130,7 @@ export class ClosedLoop {
     // ---- OS ambient and renderer inputs --------------------------------------
     this.ambient = { typing: 0, sleepy: false, activity: 1 };
     this.vision = { L: 0, R: 0 };
+    this.efference = 0;   // expected self-motion residual of the eye (EFFERENCE_*)
     this.pointer = null;                  // ground point under the cursor, or null
     this._prevPointer = null;
     this._pointerVel = { x: 0, y: 0 };
@@ -237,6 +249,7 @@ export class ClosedLoop {
     this.health = 100; this.dead = false;
     this.loomOverride = 0; this.drag = null; this.pointer = null;
     this.vision = { L: 0, R: 0 };
+    this.efference = 0;   // expected self-motion residual of the eye (EFFERENCE_*)
     this.tasteOffer = { sugar: 0, bitter: 0, until: 0 };
     this.dustLoad = 0; this.food = [];
     this.override = null; this.bursts = {};
@@ -814,7 +827,11 @@ export class ClosedLoop {
     // at 5 the walking floor stays below 0.08 while an approaching object
     // (residual 0.05-0.2) still drives the pathway well past threshold.
     const visionGain = 5;
-    const vL = clampf(this.vision.L * visionGain, 0, 1), vR = clampf(this.vision.R * visionGain, 0, 1);
+    const selfMotion = fly.state === 'flying' ? EFFERENCE_FLY
+      : fly.speed > 2 ? EFFERENCE_WALK : 0;
+    this.efference = Math.max(selfMotion, this.efference * Math.exp(-dt / EFFERENCE_DECAY_S));
+    const vL = clampf((this.vision.L - this.efference) * visionGain, 0, 1);
+    const vR = clampf((this.vision.R - this.efference) * visionGain, 0, 1);
     const loomTerms = (side) => {
       const terms = side === 'l'
         ? { cursor: clampf(cursor.l + this.loomOverride, 0, 1), world: encounter.loomL, fire: fireLoom.l, vision: vL }
@@ -830,7 +847,8 @@ export class ClosedLoop {
     sim.loomR = dead ? 0 : rt.value;
     // Each stimulus goes to the neurons that actually transduce it
     // (test/sensorytest.js): puff -> both JO populations; steady wind -> JO-C/D/E only;
-    // typing (nearby acoustic disturbance) -> JO-A/B only; odour -> nothing,
+    // typing (a brief disturbance when someone resumes using the computer;
+    // environment.js InputDisturbance) -> JO-A/B only; odour -> nothing,
     // because this circuit contains no olfactory receptor neurons.
     sim.airPuff = dead ? 0 : cursor.puff;
     sim.windDrive = dead ? 0 : windPuff;
@@ -1267,7 +1285,7 @@ export class ClosedLoop {
       rates,
       inputs: { loomL: sim.loomL, loomR: sim.loomR, puff: sim.airPuff, wind: sim.windDrive, sound: sim.soundDrive,
         hot: sim.thermoHotDrive, cold: sim.thermoColdDrive, sugar: sim.sugarTaste, bitter: sim.bitterTaste, dust: sim.antennaDust,
-        visionL: this.vision.L, visionR: this.vision.R },
+        visionL: this.vision.L, visionR: this.vision.R, efference: this.efference },
       legs,
       // Modelled stepping rules (rhythm.js): which legs are in swing, for the gait diagram.
       stepping: loc?.stepper ? { active: loc.stepper.active, swing: Array.from(loc.stepper.swing),
