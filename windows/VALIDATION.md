@@ -1,11 +1,284 @@
 # NeuroCause fly model — Validation & Reality Check
 
-Living document, last verified 1 October 2026 (release 2.3.0) against the
+Living document, last verified 4 October 2026 (release 2.4.0) against the
 state of this branch. It states plainly what this connectome-driven simulation actually
 demonstrates and what it only models. It supplements, not
 replaces, the per-feature honesty comments already inline in the source
 (`app.js`, `world.js`, `sim.js`, `locomotor.js`) — this document indexes and
 cross-checks them, it isn't the primary source of truth; the code is.
+
+## Release 2.4.0 (4 October 2026)
+
+Both applications now show the software terms before anything starts: the
+Studio does not load its data, start the simulation or build its views until
+the user ticks the consent box and accepts; Decline quits the application
+(on Windows the whole app, not only the window). The accepted terms version
+and time stay in the application's local storage on the device. The Android
+app is published as a signed APK next to the Windows ZIP. Checks for this
+release: all 36 chained test suites pass; the end-to-end test of the running
+Windows application passes, including the terms gate on a fresh profile; a
+run through the terms, start-up and all eight workspaces made 0 network
+requests; the built `NeuroCause.exe` started with 0 external connections.
+
+## Release 2.4.0: changes of 3 October 2026
+
+### The web build and a phone layout (the Android app)
+
+The renderer, both simulation workers and the fly data now also run outside
+Electron. The data assembly moved into `src/data-core.js` and the anatomy
+store into `src/specimen-store.js`; Electron reads files through them in
+Node, the web build through workers in the page. `test/webbuildtest.mjs`
+builds the web bundle into a temporary folder and assembles all three fly
+models (mixed, male, female) from the built files alone: each bundle is
+byte-identical with the desktop app's (SHA-256 of the JSON: 15.1, 5.4 and
+3.6 MB). `src/sha256.js`, used where the platform has no native digest,
+equals node:crypto on the FIPS vectors, 300 padding lengths, UTF-8 text and
+all 16 data files (`test/sha256test.js`). The neural model, the closed loop
+and the experiments are the same modules on every platform; nothing was
+retuned for phones.
+
+A phone layout (`ui/mobile.js`, any window up to 820 px) shows the
+workspaces as sheets over the terrarium. Its view changes are observer-side
+only: a camera view offset under a sheet, display fog and sky that follow
+the camera (her eye keeps fog 700-3200), a minimum arena side of 560 units
+on a small screen, and a shadow-map refresh before her eye renders while
+the brain view hides the terrarium.
+
+**Correction: a panel loom was explained as the cursor or a firefly.** The
+Stimulate panel's eye buttons raise the LC4/LPLC2 input after the closed
+loop has chosen that eye's source among cursor, world, fire and vision.
+With nothing else moving, the source stayed at the default (the cursor) or
+went to the faintest object nearby, and the takeoff's causal chain said
+"something loomed on her left (your cursor)" or "(a nearby object or
+firefly)". Measured with seed 7: source `world` before, `stimulus` after.
+A controlled stimulus that dominates an eye is now that eye's source;
+`pathwaytest` requires it. Only the explanation's wording changed: the
+neural input, the trigger channel and the latency are the same.
+
+### Continuation: stable resolution and retinal run boundaries
+
+The adaptive observer resolution now changes in quarter-ratio tiers and
+waits two measurement windows after each resize. Recovery requires six
+healthy windows. A reproducible 10-window overload trace reaches 0.75 from
+1.5 with three canvas-buffer reallocations (previous controller: eight).
+Alternating three healthy windows and one overloaded window for 40 windows
+causes zero reallocations at the floor. Tests also cover arbitrary bounds
+0.83–1.37 and eventual recovery. This reduces resize opportunities; it does
+not measure an end-to-end FPS speedup or change the retinal render target.
+
+Retinal reads and worker messages now carry the neural run and individual
+IDs. Previously a read could finish after a new run started and apply an
+old animal's visual change to the new run. Stale frames are discarded, GPU
+buffers remain owned until completion, and a new run's first image primes
+the reference with zero motion. Worker-side validation covers the interval
+before the renderer learns of respawn and rejects malformed input. Neural
+equations and headless experiment input APIs are unchanged.
+
+The isolated Electron test passes: 8 × 6,144 actual eye bytes have zero
+differences across observer settings; 30 s idle gives zero sensory takeoffs;
+an old-run input is rejected after respawn and a current-run input accepted.
+All workspaces, translations, pause/resume and causal loom response pass.
+One throughput window reached 2,166 neural ms in 3 wall seconds (~0.72×);
+that loaded-machine observation is not a controlled before/after speedup.
+The complete `npm test` run also passes, including all twelve native-model
+child suites. The successful UI run used the corrected `snapshot.inputs`
+field in the new harness assertion.
+
+### Earlier changes in this day's batch
+
+This entry supersedes historical mixed-only descriptions below where they
+describe brain/cord coupling or sensory coverage. Anatomy and modeled
+propagation remain distinct for every selectable animal.
+
+- **Runtime provenance, not a guessed bridge.** CSV rows and manifests use
+  the actual simulator's coupling. The male model has 16 descending and 34
+  ascending shared cells, the female 15 and 18; unmatched brain ascending
+  targets still receive modeled rate feedback (332 male, 203 female).
+  Shared identities do not turn spike propagation or rate-informed stepping
+  into measured physiology. No simulator supplied means mode "unreported".
+  Actual core/pathway efficacies, thresholds, arousal/cord/stepping parameters,
+  decoder status/hash and display registration accompany the export.
+  Native sensory components are subsets of the base brain bundle, not extra
+  neurons to add again. BANC display registration is not exact cell identity
+  or physiological validation. Manifests preserve unknowns and CSV ordering.
+- **Evidence scope follows the animal.** The Birch criteria panel no longer
+  applies the FAFB full-brain pathway extract to native BANC or MaleCNS.
+  Coverage there is "not assessed", not absent. Contact counts are not BFS
+  hop counts, anatomical paths need not be retained in the reduced model,
+  and receptor annotations/model dynamics are not evidence of experience.
+  Live spikes and rates are explicitly marked simulation output.
+- **A smaller hot path, identical model.** Leg-sense expressions are cached
+  for 6 legs × 3 receptor classes within each neural millisecond.
+  `legsense-cachetest.mjs` verifies all neural arrays, commands and body
+  feedback at each of 240 ticks per model against the old expression loop,
+  including feedback disable/enable, synaptic cut and backward stimulation.
+  Local 7-run alternating microbenchmark, 200,000 calls per run: median
+  632.58 ms reference vs 137.54 ms optimized (~4.60× this kernel only).
+  Whole-app speedup has not been established. Closed-loop fingerprints
+  remain seed 11 `ddd379e02900a7d9`, seed 101 `3f00515c4d62d60a`, sleepy
+  seed 7 `e5a5d78332ac0729`.
+- **Fitted observer camera.** Follow/close fit the visible fly at aspect
+  ratios 0.35, 0.6, 1.0 and 1.7, three headings per case: 0 / 22,398
+  projected mesh vertices clipped in each case. The simulation snapshot is
+  unchanged; intentional macro zoom still works. This checks the default
+  geometry, not every possible pose or obstacle arrangement.
+- **GPU preparation before Ready.** Final UI layout, arena resize and the
+  paused scene snapshot precede shader warm-up. Profiling found the two
+  former ~0.5 s post-Ready stalls were graphics resize/material compilation,
+  not simply slow DOM building; they are absent in the new measured profile.
+  Warm-up is bounded and biology remains paused. Eye readbacks (~59–125 ms)
+  and adaptive-resolution reallocations (~108–208 ms) remain latency targets.
+- **Actual eye-buffer/UI regression.** Final Electron smoke test passed all
+  eight workspaces and both languages, camera controls, timing and causal
+  tracing. Four observer cameras × two exposures, with/without an opaque
+  map: 0 changed bytes / 6,144 bytes in each of eight eye-buffer comparisons,
+  maximum delta 0. Nonblank scene (36 distinct RGB colours); no test vision
+  inputs. Thirty seconds untouched: zero phantom takeoffs. This does not
+  establish measured biological vision or guaranteed real-time performance.
+- **New reproducible cord-only film.** `npm run filmtest` passes; recorded
+  state is identical across runs and after optimization. `tools/CAUSAL_FILM.md`
+  documents the anatomical subset, modeled intervention, score and media QA.
+  The video is presentation of a model, not a living-fly recording, whole-brain
+  result, or validation of subjective experience.
+
+Verification: complete `npm test` finished with exit 0, including the final
+12 native male/female child suites; `npm run filmtest` and the isolated
+Electron UI test pass. An initial sandbox-only run could not launch those
+child processes (`EPERM`); allowed-process execution resolved the launch
+restriction. The runner now reports that error explicitly rather than
+printing blank model failures. No failing model assertion was suppressed.
+
+## Release 2.4.0: changes of 1 October 2026, evening — wind cells for the single animals
+
+- **The wind sense no longer rests on one or two cells.** In the male and
+  female circuits only 2 and 1 JO-C/D/E (deflection, wind) cells were among
+  the reserved sensory partners, which are ranked by total synapses with the
+  core (FlyWire's circuit has 18). `etl_malecns_brain.py` now also adds every
+  JO-C/D/E cell that sends at least 20 synapses into the running circuit
+  (the thermo relays' threshold) as an ordinary sensory partner: male 250
+  (of 343 such cells in the head; brain circuit now 7,337 neurons, 177,521
+  edges), female 35 (of 475; 7,013 neurons, 62,804 edges). Their somata lie
+  in the antenna, so MaleCNS has no soma positions for them (all 250 placed
+  at their partners' mean, as for every unlocated cell); BANC locates 28 of 35.
+- **Checked.** Wind drives them (male JO-C/D/E 9 -> 120 Hz) and still gives
+  0 giant-fiber spikes against 121 for sound of the same strength; all
+  male and female suites and the identity coupling pass; the live mix is
+  unchanged (3 x 90 s: male flying 0.6 %, 1 spontaneous flight, as before;
+  female 2.5 % / 4, before 3.2 % / 5). This closes the wind gap noted in the
+  two entries below; JO-A/B remain 25 (male) and 90 (female).
+
+## Release 2.4.0: changes of 1 October 2026, afternoon — terrarium, start-up, her eye
+
+- **A better-looking terrarium for the observer only.** Oak bench with a soft
+  contact shadow, sky/soil hemisphere and rim light, a lifted soil tone, light
+  playing on the pond, a vignette; the follow/close camera no longer sits
+  inside bushes or behind the glass. Her eye image is byte-identical with and
+  without these (0 of 6,144 bytes differ, three frames; display/eye toggles
+  restore exactly); ~55 fps before and after.
+- **Start-up without the freeze.** Shaders compile behind the boot screen
+  while the simulation is paused. Long tasks after "Ready": before 2.0 s +
+  1.4 s + 0.6 s, now at most ~0.55 s.
+- **Her vision no longer depends on how fast the computer is.** With the
+  faster start the idle fly fled phantom threats again (5 and 3 loom escapes
+  in 25 s at 0.87x neural pace, none at 0.6x): the eye sampled in wall-clock
+  time, so a faster app saw more self-motion per sample. Measured: the
+  worker posted the world in 0.1 s jumps when behind real time (now chunks of
+  4 ticks: 33 ms steps), a GPU read takes 120-200 ms (now three in flight,
+  processed in order), her own grooming legs were in her eye (now not), and
+  a standing fly turning in place left residuals of p99 0.045-0.059 with no
+  efference (now turning > 0.05 rad/s counts as self-motion). The eye now
+  samples every 50 ms of simulated time (images 67 ms apart in practice),
+  normalised to 50 ms. Residual p99 per eye: still 0.024-0.026, walking
+  0.035-0.040, flying 0.039-0.047 (efference 0.04 / 0.09). Idle sensory
+  escapes: 2 in 3 x 90 s; UI test 0 in 20 s. Headless fingerprints unchanged
+  (no rendered eye there).
+
+## Release 2.4.0: changes of 1 October 2026 — a single-specimen female fly
+
+- **Brain and nerve cord of one female animal.** BANC v888 holds brain and
+  nerve cord of one female fly. `etl_banc_adapter.py` renames its annotations
+  into the vocabulary the MaleCNS scripts read, so the same tested extraction
+  builds her: brain circuit 6,318 core neurons (318 core + 6,000 partners,
+  57,715 pair edges) plus 661 neurons of the heat, taste and grooming
+  pathways (6,979 neurons, 62,677 edges); nerve cord 1,000 neurons (15
+  descending, 565 premotor, 254 motor, 148 sensory, 18 ascending), 14,622
+  edges, 544,708 contacts; her own stepping decoder (36 axis decoders over 64
+  premotor cells). Leg motor channels come from BANC's muscle annotation;
+  sugar/water (95) and bitter (72) receptor cells from BANC's own taste
+  modality of the labellar bristles; 35 proboscis and 22 pharynx motor
+  neurons from BANC's cell classes. Provenance names BANC's own files with
+  their SHA-256 (`source.json` of the adapter).
+- **Drawn the same way up.** BANC's volume is tilted against FlyWire's (and
+  FAFB is mirrored); her somata are registered into FAFB's frame by a
+  similarity fit over 12,581 matched cell-type/side centroids (rms 45 um),
+  so her connectome view shows the brain from the front like the others.
+- **Cell-by-cell coupling.** All 15 descending and 18 ascending cells of her
+  cord are, by body ID, cells of her brain circuit. Driving her brain's DNp09
+  makes the same cord cells fire (0 -> 214 Hz); her cord's ascending cells
+  fire 554 mirrored spikes into the brain in 1.5 s of walking; same seed,
+  same run.
+- **Four calibrations, all of this animal's model.** BANC's brain edge list
+  counts about a quarter of the synapses per pair that FlyWire and MaleCNS
+  report (core 0.88 M synapses vs 3.30 M / 2.89 M); the looming detectors
+  reach the giant fiber with 930 synapses (MaleCNS 11,198). Unscaled, the GF
+  answered an abrupt loom only after 34 ms and taste/grooming barely moved.
+  Every brain edge is scaled by 3.7 (equal mean load), the GF threshold is
+  1.8 (FlyWire 1.15, raised for the same reason: chance coincidences at
+  rest), and her taste/grooming pathways run at 14x the forward weight with
+  a recurrent fraction of 0.025 (grid x3-x20 x 0.6-0, scored with
+  pathwaytest's criteria; only 0.02-0.03 pass, at x12-x16 alike). Her
+  central neurons rest at 9.8 Hz (FlyWire 9.5), just under the 10 Hz arousal
+  gate, and she took off spontaneously twice as often (10 vs 5 in 3 x 90 s);
+  her arousal is read relative to FlyWire's resting level (x 0.97): 5
+  spontaneous flights, flying 3.2 % of the time (FlyWire 3.1 %, male 0.6 %).
+- **Behaviour.** She passes simtest (GF silent over 4 s of rest; abrupt loom:
+  first GF spike after 8 ms; walk command on 47 % of 20 s, siesta 33 %),
+  behaviortest, locomotortest (10.3 units/s at 2.3 Hz with DNp09 30 Hz, MDN
+  -9.6 units/s, brain ascend rate 22.2 vs 13.0 Hz when the cord walks),
+  thermotest, sensorytest and pathwaytest (DNg12 0 / 13.5 / 20.8 Hz at dust
+  0 / 0.3 / 1 and silent afterwards; proboscis motor neurons 45 Hz on sugar,
+  17 with bitter, 0 without; head grooming in 3/3 dusted closed-loop trials).
+- **Known gaps.** Only one JO-C/D/E (wind) cell and 90 JO-A/B cells connect
+  to her core with >= 5 synapses (FlyWire 18 / 176). About half of BANC's
+  proboscis motor neurons receive no sugar path in the extracted circuit;
+  the reached ones fire 50-150 Hz, the population mean less.
+
+## Release 2.4.0: changes of 1 October 2026 — a single-specimen male fly
+
+- **Brain and nerve cord of one animal.** `etl_malecns_brain.py` builds a male
+  brain circuit from the MaleCNS v1.0 animal whose nerve cord already drives
+  the legs: 6,335 core neurons (335 core + 6,000 partners) and 153,114 pair
+  edges, plus 754 neurons of the heat, taste and grooming pathways (7,089
+  neurons, 175,858 edges). Synapse density is comparable to FlyWire's circuit
+  (2.89 M vs 3.30 M synapses in the core); the giant fiber receives 11,336
+  excitatory synapses (FlyWire 6,101).
+- **Cell-by-cell coupling.** All 16 descending and 34 ascending cells of the
+  cord are, by body ID, cells of the male brain circuit; their spikes cross
+  one by one in both directions. Checked: driving the brain's DNp09 makes the
+  same cord cells fire (0 -> 214 Hz) while no modelled drive reaches them; the
+  cord's ascending cells fire 2,842 mirrored spikes into the brain in 1.5 s
+  of walking; same seed, same run. The FlyWire model is untouched (closed-loop
+  fingerprints ddd379e02900a7d9 / 3f00515c4d62d60a / e5a5d78332ac0729).
+- **Behaviour without retuning of the core.** The male fly passes simtest
+  (GF silent over 4 s of rest; abrupt loom: first GF spike after 4 ms; walk
+  command on 38 % of 20 s, siesta 32 %), behaviortest, locomotortest (incl.
+  "brain, cord and body keep walking", ascend rate 46 vs 25 Hz), thermotest
+  and sensorytest (wind ~0 GF spikes vs sound hundreds) with its own counts.
+- **Taste and grooming needed a calibration.** With the FlyWire pathway
+  parameters, sugar drove the proboscis motor neurons to only 4 Hz and a hard
+  relay kick left DNg12 firing at ~247 Hz (bistable). A grid over the forward
+  weight (x1-x3) and the recurrent fraction (0.6-0.1), scored with
+  pathwaytest's own criteria, passed everything only at x2 / 0.1: DNg12
+  0 / 12 / 34 Hz at dust 0 / 0.3 / 1, silent 2.5 s after the dust and after a
+  kick; proboscis MNs 51 Hz on sugar, 3 Hz with bitter, 0 without. The male
+  pathways carry whole-cell pair totals and concentrate lateral synapses in
+  fewer pairs, which is the likely reason a smaller recurrent fraction fits.
+  This is a model calibration, not a measurement.
+- **Known gaps.** Only 25 JO-A/B and 2 JO-C/D/E cells connect to the male core
+  with >= 5 synapses (FlyWire: 176 / 18), so wind responses rest on two cells.
+- **He is "he".** Every interface text that calls the fly "she" has a male
+  version in English and German (69 texts, `renderer/i18n-male.js`), used
+  while the male fly runs; the strict translation check enforces coverage.
 
 ## Release 2.3.0 (1 October 2026): changes of 30 September 2026
 
@@ -769,6 +1042,13 @@ above: **an instrument may read the simulation, never write to it.**
 
 Kept deliberately: an over-tuned parameter, or a result that turns out to rest
 on the wrong mechanism, is worth recording rather than quietly rewriting away.
+
+- **A panel loom was credited to the cursor (3 October 2026).** The causal
+  chain of a takeoff evoked from the Stimulate panel named "your cursor" or
+  "a nearby object or firefly" as the looming source, because the panel's
+  input was added after the source had been chosen. Found while preparing
+  phone screenshots; details under "Release 2.4.0: changes of 3 October
+  2026" above.
 
 - **A resting fly fled her own footsteps (30 September 2026).** Three
   independent causes kept the live fly taking off every few seconds with

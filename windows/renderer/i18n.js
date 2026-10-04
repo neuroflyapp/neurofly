@@ -4,6 +4,7 @@
 // back to English rather than to a key, so nothing ever shows blank.
 
 import { DE } from './i18n-de.js';
+import { MALE } from './i18n-male.js';
 
 const STORAGE_KEY = 'neurofly.lang';
 let lang = 'en';
@@ -27,9 +28,17 @@ export function setLanguage(next) {
 // a gap would otherwise go unnoticed; the UI test reads this set.
 export const untranslated = new Set();
 
+// Who the texts speak of: 'female' (the source texts say she/her) or 'male'
+// (the single-specimen male fly; i18n-male.js holds his versions).
+let subject = 'female';
+export function setSubject(sex) { subject = sex === 'male' ? 'male' : 'female'; }
+export function getSubject() { return subject; }
+
 export function t(text, vars = null) {
   let out = text;
-  if (lang === 'de') {
+  const male = subject === 'male' ? MALE[text] : undefined;
+  if (male) out = male[lang === 'de' ? 1 : 0];
+  else if (lang === 'de') {
     const de = DE[text];
     if (de === undefined) untranslated.add(text); else out = de;
   }

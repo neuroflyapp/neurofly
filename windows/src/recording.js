@@ -43,7 +43,8 @@ export const RECORDING_COLUMNS = [
   { key: 'brainFingerprint', label: 'brain_bundle_sha256_16' },
   { key: 'vncFingerprint', label: 'vnc_bundle_sha256_16' },
   // This is intentionally a label rather than a biological measurement: it
-  // records the cross-specimen interface that was assumed for this run.
+  // records the constructed simulator's shared-cell or population interface.
+  // Boundary manifests carry the exact counts and model parameter values.
   { key: 'brainVncBridge', label: 'brain_vnc_bridge' },
   // Optional learning experiments change an explicit, bounded copy of an
   // anatomical subset. These columns make it impossible to pool that trial

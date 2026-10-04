@@ -23,7 +23,7 @@ import { circadianActivity, localTemperature } from './environment.js';
 import { Recorder, RECORDING_HZ } from './recording.js';
 import { SpatialMap } from './spatial.js';
 import { SamplingClock } from './sampling-clock.js';
-import { MODEL_VERSION } from './provenance.js';
+import { MODEL_VERSION, brainVncCoupling } from './provenance.js';
 import { LearningSession } from './learning-session.js';
 import { ExperimentJournal } from './experiment-journal.js';
 import { makeExperimentManifest } from './experiment-manifest.js';
@@ -48,6 +48,12 @@ const TRACE_HZ = 20;
 // (0.028 raw at gain 5) and the fly took off every few seconds with nothing
 // approaching. An approaching object leaves 0.05-0.2 and still gets through.
 const EFFERENCE_WALK = 0.04, EFFERENCE_FLY = 0.09, EFFERENCE_DECAY_S = 0.15;
+// Turning in place moves the whole visual field as well: measured 2026-10-01
+// on the idle fly (samples 67 ms apart, normalised to 50 ms), a standing fly
+// that turned faster than 0.05 rad/s left a residual of p50 0.017-0.035, p99
+// 0.045-0.059 (not turning: p99 0.017), and those samples made her flee from
+// nothing. Turning faster than this counts as walking-strength self-motion.
+const EFFERENCE_TURN_RAD_S = 0.05;
 
 // Named-circuit stimulation: the strengths/durations the behavior test suite
 // uses, so a panel button and its equivalent test do the same thing.
@@ -131,6 +137,7 @@ export class ClosedLoop {
     this.ambient = { typing: 0, sleepy: false, activity: 1 };
     this.vision = { L: 0, R: 0 };
     this.efference = 0;   // expected self-motion residual of the eye (EFFERENCE_*)
+    this.efferenceHeading = null;   // her heading at the previous tick (turning efference)
     this.pointer = null;                  // ground point under the cursor, or null
     this._prevPointer = null;
     this._pointerVel = { x: 0, y: 0 };
@@ -250,6 +257,7 @@ export class ClosedLoop {
     this.loomOverride = 0; this.drag = null; this.pointer = null;
     this.vision = { L: 0, R: 0 };
     this.efference = 0;   // expected self-motion residual of the eye (EFFERENCE_*)
+    this.efferenceHeading = null;   // her heading at the previous tick (turning efference)
     this.tasteOffer = { sugar: 0, bitter: 0, until: 0 };
     this.dustLoad = 0; this.food = [];
     this.override = null; this.bursts = {};
@@ -706,11 +714,13 @@ export class ClosedLoop {
   }
 
   // ---- the 120 Hz step ---------------------------------------------------------------------------
-  advance(elapsed) {
+  // `maxTicks` (optional) bounds the ticks of one call; the remainder stays
+  // due (see SimulationClock.advance), so a worker can post between chunks.
+  advance(elapsed, { maxTicks = Infinity } = {}) {
     if (this.paused) { this.clock.reset(); return 0; }
-    if (!Number.isFinite(elapsed) || elapsed <= 0) return 0;
+    if (!Number.isFinite(elapsed) || elapsed < 0 || (elapsed === 0 && maxTicks === Infinity)) return 0;
     const t0 = performance.now();
-    const ticks = this.clock.advance(elapsed * this.speed, (dt) => this.tick(dt), 0.1 * Math.max(1, this.speed));
+    const ticks = this.clock.advance(elapsed * this.speed, (dt) => this.tick(dt), 0.1 * Math.max(1, this.speed), maxTicks);
     const dropped = this.clock.consumeDroppedSeconds();
     this.perf.dropped += dropped;
     this.totalDroppedSimulationSeconds += dropped;
@@ -827,8 +837,11 @@ export class ClosedLoop {
     // at 5 the walking floor stays below 0.08 while an approaching object
     // (residual 0.05-0.2) still drives the pathway well past threshold.
     const visionGain = 5;
+    this.efferenceHeading ??= fly.heading;
+    const turn = Math.abs(Math.atan2(Math.sin(fly.heading - this.efferenceHeading), Math.cos(fly.heading - this.efferenceHeading))) / Math.max(dt, 1e-6);
+    this.efferenceHeading = fly.heading;
     const selfMotion = fly.state === 'flying' ? EFFERENCE_FLY
-      : fly.speed > 2 ? EFFERENCE_WALK : 0;
+      : fly.speed > 2 || turn > EFFERENCE_TURN_RAD_S ? EFFERENCE_WALK : 0;
     this.efference = Math.max(selfMotion, this.efference * Math.exp(-dt / EFFERENCE_DECAY_S));
     const vL = clampf((this.vision.L - this.efference) * visionGain, 0, 1);
     const vR = clampf((this.vision.R - this.efference) * visionGain, 0, 1);
@@ -898,8 +911,11 @@ export class ClosedLoop {
       }
     }
     if (o && !dead) {
-      if (o.loomL) sim.loomL = Math.max(sim.loomL, o.loomL);
-      if (o.loomR) sim.loomR = Math.max(sim.loomR, o.loomR);
+      // A controlled stimulus that dominates an eye is that eye's source in
+      // the input history, so "why" names it and not the cursor (the default
+      // when nothing else moves) or a faint object in the world.
+      if (o.loomL) { if (o.loomL > sim.loomL) lt.source = 'stimulus'; sim.loomL = Math.max(sim.loomL, o.loomL); }
+      if (o.loomR) { if (o.loomR > sim.loomR) rt.source = 'stimulus'; sim.loomR = Math.max(sim.loomR, o.loomR); }
       if (o.puff) sim.airPuff = Math.max(sim.airPuff, o.puff);
       if (o.wind) sim.windDrive = Math.max(sim.windDrive, o.wind);
       if (o.sound) sim.soundDrive = Math.max(sim.soundDrive, o.sound);
@@ -1126,7 +1142,7 @@ export class ClosedLoop {
       neuralRun: this.neuralRun, neuralTimeMs: sim.simMs, eventSequence: this.journal.sequence,
       brainFingerprint: this.data.provenance?.brainCircuitSHA256?.slice(0, 16),
       vncFingerprint: this.data.provenance?.locomotorSHA256?.slice(0, 16),
-      brainVncBridge: 'modeled same-type/side population-rate interface',
+      brainVncBridge: brainVncCoupling(sim).label,
       plasticityMode: plasticity.enabled ? plasticity.mechanism : 'off',
       plasticityProtocol: this.learningProtocol?.name ?? 'none',
       plasticityEligibleEdges: plasticity.eligibleEdges, plasticityUpdates: plasticity.updates,
@@ -1174,7 +1190,7 @@ export class ClosedLoop {
       session: { id: this.sessionId, neuralRun: this.neuralRun, individual: this.individual },
       environment: this.environmentSnapshot(), body: this.bodySnapshot(),
       interventions: this.journal.snapshot(), modelVersion: MODEL_VERSION, neuralSeed: sim.neuralSeed,
-      data: this.data, plasticity: sim.plasticitySummary(), protocol: this.learningProtocol,
+      data: this.data, simulation: sim, plasticity: sim.plasticitySummary(), protocol: this.learningProtocol,
       performance: { windowSeconds: perf.windowSeconds, fps: null, simulationRealtime: perf.simulationRealtime,
         coreRealtime: perf.coreRealtime, droppedSecondsPerSecond: perf.droppedSecondsPerSecond,
         totalDroppedSimulationSeconds: this.totalDroppedSimulationSeconds },
@@ -1184,7 +1200,7 @@ export class ClosedLoop {
       genetics: this.genetics.map(({ mode, population, label, count, strength }) => ({ mode, population, label, count, strength: strength ?? null })),
       pharmacology: { ...this.pharmacology, note: 'Synaptic efficacy scaled per transmitter class; GABA and glutamate share the inhibitory class in the extracted data.' },
       pathwayWeight: sim.pathwayWeight,
-      pathwayWeightNote: 'Taste and antennal-grooming pathways run at the peak-matched per-synapse efficacy of Shiu et al. (2024); the core at 0.0002.',
+      pathwayWeightNote: 'Taste and antennal-grooming pathways use a model-specific calibration of peak-matched efficacy from Shiu et al. (2024). Actual forward/recurrent weights, edge cap and core synapse scale are recorded in model.parameters; they are model choices, not measured physiology.',
       simulationSpeed: this.speed,
     } };
   }

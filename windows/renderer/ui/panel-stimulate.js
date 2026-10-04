@@ -11,6 +11,11 @@ export const stimulatePanel = {
     const cmd = (name, args) => ctx.command(name, args);
     const env = ctx.snap?.env ?? {};
     const set = (key) => (v) => cmd('env.set', { key, value: v });
+    // Cell counts of the fly that is running (FlyWire, MaleCNS or BANC).
+    const prov = ctx.data?.provenance ?? {};
+    const loomCells = (ctx.data?.circuit?.neurons ?? []).filter((n) => n.role === 'lc4' || n.role === 'lplc2').length;
+    const jo = prov.sensoryGroupCounts ?? {};
+    const source = { male: 'MaleCNS', female: 'BANC' }[prov.flyModel] ?? 'FlyWire';
 
     // vision
     let loomStrength = 0.6;
@@ -21,7 +26,7 @@ export const stimulatePanel = {
         h('button', { class: 'btn small', type: 'button', onclick: () => cmd('stim.burst', { channel: 'loomL', level: loomStrength, durationS: 0.3, label: t('loom, left eye') }) }, t('Left eye')),
         h('button', { class: 'btn small primary', type: 'button', onclick: () => { cmd('stim.burst', { channel: 'loomL', level: loomStrength, durationS: 0.3, label: t('loom, both eyes') }); cmd('stim.burst', { channel: 'loomR', level: loomStrength, durationS: 0.3, label: t('loom, both eyes') }); } }, t('Both eyes')),
         h('button', { class: 'btn small', type: 'button', onclick: () => cmd('stim.burst', { channel: 'loomR', level: loomStrength, durationS: 0.3, label: t('loom, right eye') }) }, t('Right eye'))),
-      h('p', { class: 'note' }, t('Drives the 314 real LC4/LPLC2 looming neurons of one or both eyes for 300 ms. Her rendered eye also feeds them continuously: move the cursor at her, or drag an object towards her face.')));
+      h('p', { class: 'note' }, (ctx.touch ? t('Drives the {n} real LC4/LPLC2 looming neurons of one or both eyes for 300 ms. Her rendered eye also feeds them continuously: swipe at her, or drag an object towards her face.', { n: loomCells }) : t('Drives the {n} real LC4/LPLC2 looming neurons of one or both eyes for 300 ms. Her rendered eye also feeds them continuously: move the cursor at her, or drag an object towards her face.', { n: loomCells }))));
 
     // antenna
     const wind = slider({ label: t('Wind'), min: 0, max: 80, step: 1, value: env.windKmh ?? 0, format: (v) => `${v} km/h`, onInput: set('windKmh'),
@@ -33,14 +38,14 @@ export const stimulatePanel = {
         h('button', { class: 'btn small', type: 'button', onclick: () => cmd('stim.burst', { channel: 'sound', level: 0.8, durationS: 0.6, label: t('sound') }) }, t('Sound')),
         h('button', { class: 'btn small', type: 'button', onclick: () => cmd('antenna.dust', { amount: 1 }) }, t('Dust'))),
       wind.el, windDir.el,
-      h('p', { class: 'note' }, t('Sound reaches JO-A/B (176 neurons, strongly wired to the giant fiber); wind reaches JO-C/D/E (18); dust reaches the JO-F grooming neurons (204). Same strength, different neurons — the wiring decides the outcome.')));
+      h('p', { class: 'note' }, t('Sound reaches JO-A/B ({a} neurons, strongly wired to the giant fiber); wind reaches JO-C/D/E ({w}); dust reaches the JO-F grooming neurons ({f}). Same strength, different neurons — the wiring decides the outcome.', { a: jo.jo_auditory ?? 0, w: jo.jo_wind_gravity ?? 0, f: prov.sensoryExtension?.joFCells ?? 0 })));
 
     // temperature
     const temp = slider({ label: t('Temperature'), min: -10, max: 45, step: 1, value: env.tempC ?? 24, format: (v) => `${v} °C`, onInput: set('tempC'),
       title: t('Reaches the real hot and cold cells; below 10 °C cold torpor slows her nervous system.') });
     const grad = slider({ label: t('Thermal gradient (west → east)'), min: 0, max: 40, step: 1, value: env.tempGradientC ?? 0, format: (v) => (v ? `±${v / 2} °C` : t('off')), onInput: set('tempGradientC') });
     const thermo = card(t('Temperature'), { iconName: 'thermo', tagEl: tag('measured', t('real thermosensors')) }, temp.el, grad.el,
-      h('p', { class: 'note' }, t('7 hot and 9 cold cells from FlyWire, with their real downstream wiring. They respond mainly to temperature change (Gallio et al. 2011) — walking along the gradient is what changes their input.')));
+      h('p', { class: 'note' }, t('{hot} hot and {cold} cold cells from {source}, with their real downstream wiring. They respond mainly to temperature change (Gallio et al. 2011) — walking along the gradient is what changes their input.', { hot: prov.thermoExtension?.hotCells ?? 0, cold: prov.thermoExtension?.coldCells ?? 0, source })));
 
     // taste
     let sugar = 0.7, bitter = 0;

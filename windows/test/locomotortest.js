@@ -75,8 +75,10 @@ check('cord rejects ambiguous identity, malformed counts and false motor pools',
     c => c.neurons[0].id = Number(c.neurons[0].id),
     c => c.neurons[0].id = c.neurons[1].id,
     c => c.neurons[0].role = 'invented',
-    c => c.provenance.specimen = 'female Drosophila melanogaster',
-    c => c.provenance.dataset = 'BANC v888',
+    // Each native cord names its own animal; a swapped or unknown pairing fails.
+    c => c.provenance.specimen = c.provenance.dataset === 'BANC v888' ? 'male Drosophila melanogaster' : 'female Drosophila melanogaster',
+    c => c.provenance.dataset = c.provenance.dataset === 'BANC v888' ? 'MaleCNS v1.0' : 'BANC v888',
+    c => c.provenance.dataset = 'FAFB v783',
     c => c.legOrder.reverse(),
     c => c.edges[0][2] = 1.5,
     c => { const edge = c.edges.find(e => e[2] !== 0); edge[2] *= -1; },
@@ -90,11 +92,11 @@ check('cord rejects ambiguous identity, malformed counts and false motor pools',
     const invalid = structuredClone(cordData);
     mutate(invalid);
     assert.equal(validateLocomotorCircuit(invalid), false);
-    assert.throws(() => new LocomotorSim(invalid), /Invalid MaleCNS/);
+    assert.throws(() => new LocomotorSim(invalid), /Invalid locomotor circuit/);
   }
   assert(cordData.edges.some((e, i) => e[2] === 0 && cordData.rawSynapseCounts[i] > 0));
   assert(validateLocomotorCircuit(cordData), 'unknown-sign anatomy is retained');
-  return '15 malformed cases fail closed; native unknown-sign contacts remain valid';
+  return '16 malformed cases fail closed; native unknown-sign contacts remain valid';
 });
 
 check('the cord stays silent without descending or sensory input', () => {

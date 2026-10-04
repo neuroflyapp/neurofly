@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadBrainData } from '../src/data.js';
+import { expectationsFor } from './fly-models.js';
 import { LIFSim } from '../src/sim.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -31,9 +32,11 @@ function check(name, fn) {
 
 const ext = data.provenance.thermoExtension;
 check('the thermo extension is attached to this exact circuit', () => {
-  const ok = data.provenance.thermoExtensionStatus === 'attached' && ext
-    && ext.hotCells === 7 && ext.coldCells === 9 && ext.relayNeurons > 0
-    && ext.runningNeurons === data.provenance.brainAudit.neurons + ext.addedNeurons;
+  // FlyWire appends its 7 hot + 9 cold cells; the single-animal bundles embed their own.
+  const want = expectationsFor(data), appended = want.senses === 'attached';
+  const ok = data.provenance.thermoExtensionStatus === want.senses && ext
+    && ext.hotCells === want.hot && ext.coldCells === want.cold && ext.relayNeurons > 0
+    && ext.runningNeurons === data.provenance.brainAudit.neurons + (appended ? ext.addedNeurons : 0);
   return [ok, `status=${data.provenance.thermoExtensionStatus}, hot ${ext?.hotCells}, cold ${ext?.coldCells}, `
     + `relays ${ext?.relayNeurons}, +${ext?.addedEdges} edges, running ${ext?.runningNeurons} neurons`];
 });
@@ -59,7 +62,8 @@ check('added neurons stay out of the antennal and ascending input populations', 
   const s = rest.sim;
   const inSens = s.sens.some((i) => data.circuit.neurons[i].extension);
   const inAsc = s.ascend.some((i) => data.circuit.neurons[i].extension);
-  return [!inSens && !inAsc && s.sensAuditory.length === 176 && s.sensWind.length === 18,
+  const { auditory, wind } = expectationsFor(data);
+  return [!inSens && !inAsc && s.sensAuditory.length === auditory && s.sensWind.length === wind,
     `JO-A/B ${s.sensAuditory.length}, JO-C/D/E ${s.sensWind.length}, ascend ${s.ascend.length}; extension in sens=${inSens}, in ascend=${inAsc}`];
 });
 
@@ -154,7 +158,7 @@ check('no thermosensor inherits the Johnston\'s-organ gap-junction boost onto th
 });
 
 check('the opt-in plasticity experiment keeps its scope when the extension is loaded', () => {
-  const n0 = data.provenance.brainAudit.neurons;
+  const n0 = data.circuit.coreNeurons ?? data.provenance.brainAudit.neurons;   // male: the senses are embedded after the core
   const base = {
     ...data.circuit,
     neurons: data.circuit.neurons.slice(0, n0),
@@ -175,7 +179,7 @@ check('heat is no longer injected into the visual looming detectors', () => {
 });
 
 check('without the extension, temperature drives nothing instead of crashing', () => {
-  const n0 = data.provenance.brainAudit.neurons;
+  const n0 = data.circuit.coreNeurons ?? data.provenance.brainAudit.neurons;   // male: the senses are embedded after the core
   const base = {
     ...data.circuit,
     neurons: data.circuit.neurons.slice(0, n0),

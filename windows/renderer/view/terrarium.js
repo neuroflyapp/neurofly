@@ -11,7 +11,7 @@
 // exposure, and the overlay lives on a render layer the eye cannot see.
 
 import * as THREE from '../../node_modules/three/build/three.module.js';
-import { buildFlyModel, SHADOWS_ENABLED } from '../../src/flymodel.js';
+import { buildFlyModel, FLY_SCALE, SHADOWS_ENABLED } from '../../src/flymodel.js';
 import { World, DISPLAY_LAYER } from '../../src/world.js';
 import { applyPose, poseNodes } from '../../src/pose.js';
 import { clampf } from '../../src/util.js';
@@ -21,6 +21,12 @@ import { localMotionResidual } from '../../src/vision.js';
 
 const VISION_W = 64, VISION_H = 24;
 const VISION_EXPOSURE = 1;
+// Her eye's sampling interval in simulated time (s), and the longest interval
+// still read as motion; beyond it the eye re-primes (see frame()).
+const EYE_SAMPLE_S = 0.05;
+const EYE_GAP_S = 0.12;
+// Eye readbacks in flight at once (see _renderEye).
+const EYE_READS_IN_FLIGHT = 3;
 const MAP_LAYER = 1;
 const CAMERA_MODES = ['overview', 'follow', 'close', 'overhead'];
 export function cameraModeLabel(mode) {
@@ -50,6 +56,43 @@ export function overviewDistance(bounds, fov, aspect, azimuth, elevation) {
   }
   return Math.max(150, distance * 1.08);
 }
+// A conservative envelope for the rendered body and leg span, in scene
+// units at its normal FLY_SCALE. Only the observer's camera uses this fit.
+// The limiting field of view is horizontal on narrow panes and vertical on
+// wide ones. A sphere fits at radius / sin(halfFov), not radius / tan(halfFov):
+// its nearest surface is closer than its centre.
+const FOLLOW_BODY_RADIUS = 26;
+const FOLLOW_BODY_CENTER_Z = 7;
+export function followFitDistance(fov, aspect, radius = FOLLOW_BODY_RADIUS) {
+  const halfFov = Math.atan(Math.tan(fov * Math.PI / 360) * Math.min(1, Math.max(0.05, aspect)));
+  return radius / Math.sin(halfFov) * 1.08;
+}
+// Observer lighting (display render only; see _lookFor): share of the flat
+// ambient fill kept, hemisphere and rim light relative to the scene's own
+// ambient and key light, and the hemisphere's tints.
+const DISPLAY_AMBIENT_SHARE = 0.45;
+const DISPLAY_HEMI_GAIN = 1.0;
+const DISPLAY_RIM_GAIN = 0.35;
+const DISPLAY_SKY_TINT = new THREE.Color(0xdfeaff);
+const DISPLAY_SOIL = new THREE.Color(0x5a4028);
+// Follow/close camera (_unoccludedBoom): distance kept from the glass, the
+// clearance around an object, the smallest height that can block the view,
+// the shortest boom (share of the full one) and the lift over an obstacle.
+const FOLLOW_WALL_MARGIN = 10;
+const FOLLOW_CLEARANCE = 4;
+const FOLLOW_MIN_OCCLUDER = 5;
+const FOLLOW_MIN_BOOM = 0.25;
+const FOLLOW_LIFT = 40;
+// The arena in scene units for a pane of w x h CSS pixels. A phone's pane is
+// small; there the arena keeps at least `minSide` units on its shorter side
+// (same shape), so the habitat is not cramped. 0: the pane's own size, as on
+// the desktop. The canvas always has the pane's size.
+export function arenaBounds(w, h, minSide = 0) {
+  const s = minSide > 0 ? Math.max(1, minSide / Math.max(1, Math.min(w, h))) : 1;
+  return { width: Math.round(w * s), height: Math.round(h * s) };
+}
+// Haze in her eye (and the desktop view's default): from 700 to 3200 units.
+const EYE_FOG_NEAR = 700, EYE_FOG_FAR = 3200;
 const FLOOD_MAX_Z = 70;
 const SCENT_RADIUS = 260;
 const FLY_GRAB_RADIUS = 26;
@@ -103,13 +146,18 @@ export function mapColor(g, out, o) {
 }
 
 export class TerrariumView {
-  constructor(container, { layout, onPointer, onCommand, onVision, onTap }) {
+  constructor(container, { layout, onPointer, onCommand, onVision, onTap, minArenaSide = 0 }) {
     this.container = container;
     this.onPointer = onPointer;
     this.onCommand = onCommand;
     this.onVision = onVision;
     this.onTap = onTap;
-    this.bounds = { width: Math.max(100, container.clientWidth), height: Math.max(100, container.clientHeight) };
+    this.minArenaSide = minArenaSide;
+    this.pane = { width: Math.max(100, container.clientWidth), height: Math.max(100, container.clientHeight) };
+    this.bounds = arenaBounds(this.pane.width, this.pane.height, minArenaSide);
+    // A sheet covering the pane's bottom or right edge (setViewInset), eased.
+    this.viewInset = { bottom: 0, right: 0 }; this.viewInsetShown = { bottom: 0, right: 0 };
+    this.displayHidden = false;                     // the brain view covers the terrarium (phone layout)
     this.maxPixelRatio = Math.min(window.devicePixelRatio || 1, 1.5);
     this.snap = null;
     this.cameraMode = 'overview';
@@ -120,7 +168,6 @@ export class TerrariumView {
     this.autoLiftGain = 1;
     this.displayExposure = 1;
     this.dayNightT = 999;
-    this.visionT = 0;
     this.visionReadPending = false;
     this.visionPreview = null;          // { rawCtx, motionCtx } when the panel shows it
     this.visionEnabled = true;
@@ -157,6 +204,8 @@ export class TerrariumView {
     this.key.layers.enable(DISPLAY_LAYER);
     if (SHADOWS_ENABLED) {
       this.key.castShadow = true;
+      // her own body is on the display layer only (applySnapshot) and still casts her shadow
+      this.key.shadow.camera.layers.enable(DISPLAY_LAYER);
       this.key.shadow.mapSize.set(1024, 1024);
       this.key.shadow.radius = 2.6;
       this.key.shadow.bias = -0.0006;
@@ -170,15 +219,61 @@ export class TerrariumView {
     this.skyCtx = skyCanvas.getContext('2d');
     this.skyTex = new THREE.CanvasTexture(skyCanvas);
     this.skyTex.colorSpace = THREE.SRGBColorSpace;
-    this.scene.add(new THREE.Mesh(new THREE.SphereGeometry(4200, 24, 16),
-      new THREE.MeshBasicMaterial({ map: this.skyTex, side: THREE.BackSide, fog: false })));
-    this.scene.fog = new THREE.Fog(0x0b0d14, 700, 3200);
+    this.skyMesh = new THREE.Mesh(new THREE.SphereGeometry(4200, 24, 16),
+      new THREE.MeshBasicMaterial({ map: this.skyTex, side: THREE.BackSide, fog: false }));
+    this.scene.add(this.skyMesh);
+    this.scene.fog = new THREE.Fog(0x0b0d14, EYE_FOG_NEAR, EYE_FOG_FAR);
+    // Observer lighting: a sky/soil hemisphere and a cool rim light model the
+    // terrarium for the person watching. They light only the display render:
+    // _lookFor('eye') sets them to zero before her eye renders (adding zero
+    // light leaves every eye pixel unchanged), and the flat ambient fill they
+    // replace is lowered for the display render only. They stay in the scene
+    // for both passes because a different light count per pass would switch
+    // every material's shader program twice a frame.
+    this.hemi = new THREE.HemisphereLight(0xbfd8ff, 0x4a3520, 0);
+    this.rim = new THREE.DirectionalLight(0xd6e8ff, 0);
+    this.rim.position.set(-0.55 * 900, 0.62 * 900, 0.42 * 900);
+    this.rim.target.position.set(0, 0, 0);
+    this.scene.add(this.hemi, this.rim, this.rim.target);
+    this.lightBase = { key: this.key.intensity, ambient: this.ambientLight.intensity };
+    this.look = 'eye';
+  }
+
+  // The display look and her eye's look differ only in the observer lights
+  // above; positions, shadows and every material are shared.
+  _lookFor(pass) {
+    if (this.look === pass || !this.hemi) return;   // no observer rig built: nothing to switch
+    this.look = pass;
+    const b = this.lightBase;
+    if (pass === 'display') {
+      this.ambientLight.intensity = b.ambient * DISPLAY_AMBIENT_SHARE;
+      this.hemi.intensity = b.ambient * DISPLAY_HEMI_GAIN;
+      this.rim.intensity = b.key * DISPLAY_RIM_GAIN;
+    } else {
+      this.ambientLight.intensity = b.ambient;
+      this.hemi.intensity = 0;
+      this.rim.intensity = 0;
+      this.scene.fog.near = EYE_FOG_NEAR;
+      this.scene.fog.far = EYE_FOG_FAR;
+    }
+    this.world?.setDisplayLook(pass === 'display');
+  }
+
+  // The observer's haze and sky follow the camera's distance, so a large
+  // arena seen from far away (a phone held upright) is not lost in fog or
+  // outside the sky dome. Her eye keeps EYE_FOG_*; the dome lies beyond her
+  // eye's far plane wherever it is.
+  _displayAtmosphere() {
+    const d = this.camera.position.length();
+    this.scene.fog.near = Math.max(EYE_FOG_NEAR, d * 0.9);
+    this.scene.fog.far = Math.max(EYE_FOG_FAR, d * 2.6);
+    this.skyMesh.position.copy(this.camera.position);
   }
 
   _buildRenderer() {
     const r = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     r.setPixelRatio(this.maxPixelRatio);
-    r.setSize(this.bounds.width, this.bounds.height);
+    r.setSize(this.pane.width, this.pane.height);
     r.setClearColor(0x0b0d14, 1);
     r.outputColorSpace = THREE.SRGBColorSpace;
     // Linear exposure: a straight gain like a camera's ISO, identical to no
@@ -306,12 +401,41 @@ export class TerrariumView {
     this.visionCamera.up.set(0, 0, 1);
     this.visionTarget = new THREE.WebGLRenderTarget(VISION_W, VISION_H, { depthBuffer: true });
     this.visionPixels = new Uint8Array(VISION_W * VISION_H * 4);
+    this.eyeReads = [];   // reads in flight, oldest first (see _renderEye)
+    this.eyePool = [];    // their spare pixel buffers
     this.visionPrevLum = new Float32Array(VISION_W * VISION_H);
     this.visionMotion = new Float32Array(VISION_W * VISION_H);
     this.visionResidual = new Float32Array(VISION_W * VISION_H);
     this.visionSurround = new Float32Array(VISION_W * VISION_H);
     this.visionScratch = new Float32Array(VISION_W * VISION_H);
     this.visionMotionL = 0; this.visionMotionR = 0;
+  }
+
+  // ---- start-up -------------------------------------------------------------------
+  // Compiles every shader the display and her eye will need (with a stand-in
+  // fly, in case no snapshot has built hers yet) and renders each pass once,
+  // behind the boot screen while the simulation is still paused. Without it
+  // the first frames froze the page for ~4 s right after start, while the
+  // brain was already running and her eye took no samples.
+  async warmUp() {
+    const r = this.renderer;
+    const standIn = buildFlyModel();   // never disposed: its programs stay cached for her
+    this.scene.add(standIn.root);
+    try {
+      this._lookFor('display');
+      await r.compileAsync(this.scene, this.camera);
+      this._lookFor('eye');
+      r.setRenderTarget(this.visionTarget);
+      await r.compileAsync(this.scene, this.visionCamera);
+      r.render(this.scene, this.visionCamera);   // also builds the shadow map's programs and uploads
+      r.setRenderTarget(null);
+      this._lookFor('display');
+      r.render(this.scene, this.camera);
+    } finally {
+      r.setRenderTarget(null);
+      this.scene.remove(standIn.root);
+      if (SHADOWS_ENABLED) r.shadowMap.needsUpdate = true;
+    }
   }
 
   // ---- camera ------------------------------------------------------------------
@@ -365,19 +489,66 @@ export class TerrariumView {
     const f = this.snap?.fly;
     if (!f) return;
     const close = this.cameraMode === 'close';
-    const back = (close ? 58 : 112) * this.orbitShown.zoom;
-    const up = close ? 26 : 56;
-    const ahead = close ? 16 : 26;
+    const baseBack = close ? 58 : 112, baseUp = close ? 26 : 56;
+    const bodyScale = this.flyViews?.[0]?.model.root.scale.x / FLY_SCALE || 1;
+    const distance = Math.max(Math.hypot(baseBack, baseUp - FOLLOW_BODY_CENTER_Z),
+      followFitDistance(this.camera.fov, this.camera.aspect, FOLLOW_BODY_RADIUS * bodyScale)) * this.orbitShown.zoom;
+    // Fit first, then apply the user's zoom: zooming in deliberately remains
+    // a macro view. Compensate for the unobstructed boom's 6% clearance.
+    const boomScale = distance / Math.hypot(baseBack, baseUp - FOLLOW_BODY_CENTER_Z) / 0.94;
+    const back = baseBack * boomScale;
+    const up = FOLLOW_BODY_CENTER_Z + (baseUp - FOLLOW_BODY_CENTER_Z) * boomScale;
     const yaw = f.heading + this.orbitShown.azimuth * 0.35;
     const hx = Math.cos(yaw), hy = Math.sin(yaw);
     const k = Math.min(1, dt * 5.5);
     const c = this.camera.position;
     this.camera.up.set(0, 0, 1);
-    c.x += (f.x - hx * back - c.x) * k;
-    c.y += (f.y - hy * back - c.y) * k;
-    c.z += (f.z + up - c.z) * k;
-    this.followLookAt.set(f.x + hx * ahead, f.y + hy * ahead, f.z + (close ? 8 : 12));
+    const goal = this._unoccludedBoom(f, f.x - hx * back, f.y - hy * back, f.z + up);
+    // Glass or scenery can shorten the horizontal boom. Gain height rather
+    // than leave the tank or crop the body after a narrow-pane resize.
+    const centerZ = f.z + FOLLOW_BODY_CENTER_Z;
+    const horizontal2 = (goal.x - f.x) ** 2 + (goal.y - f.y) ** 2;
+    goal.z = Math.max(goal.z, centerZ + Math.sqrt(Math.max(0, distance * distance - horizontal2)));
+    c.x += (goal.x - c.x) * k;
+    c.y += (goal.y - c.y) * k;
+    c.z += (goal.z - c.z) * k;
+    // Centring the body also prevents an instantaneous heading change from
+    // swinging the look target away while the camera's position eases.
+    this.followLookAt.set(f.x, f.y, centerZ);
     this.camera.lookAt(this.followLookAt);
+  }
+
+  // The following camera's boom from her head to (x, y, z), kept inside the
+  // glass and out of the scenery: an object standing between her and the
+  // camera (a cylinder of its radius and rendered height) shortens the boom
+  // to just in front of it and lifts the camera over it. Observer only.
+  _unoccludedBoom(f, x, y, z) {
+    const out = this.boomGoal ??= new THREE.Vector3();
+    const hw = this.bounds.width / 2 - FOLLOW_WALL_MARGIN, hh = this.bounds.height / 2 - FOLLOW_WALL_MARGIN;
+    x = clampf(x, -hw, hw); y = clampf(y, -hh, hh);
+    const sx = f.x, sy = f.y, sz = f.z + 8;
+    const dx = x - sx, dy = y - sy, dz = z - sz;
+    const len2 = dx * dx + dy * dy;
+    let first = 1;
+    if (len2 > 1e-6) {
+      for (const o of this.world.objects) {
+        if (o.kind === 'firefly' || !(o.topZ > FOLLOW_MIN_OCCLUDER)) continue;
+        const r = o.radius + FOLLOW_CLEARANCE;
+        // entry of the segment into the object's circle (2D), if any
+        const ox = sx - o.pos.x, oy = sy - o.pos.y;
+        const b = ox * dx + oy * dy, cc = ox * ox + oy * oy - r * r;
+        if (cc <= 0) continue;               // she stands inside its footprint: nothing to clear
+        const disc = b * b - len2 * cc;
+        if (disc <= 0) continue;
+        const s = (-b - Math.sqrt(disc)) / len2;
+        if (s <= 0 || s >= first) continue;
+        if (sz + dz * s > o.topZ + FOLLOW_CLEARANCE) continue;   // the boom passes over it
+        first = s;
+      }
+    }
+    const s = Math.max(FOLLOW_MIN_BOOM, first - 0.06);
+    out.set(sx + dx * s, sy + dy * s, sz + dz * s + (1 - s) * FOLLOW_LIFT);
+    return out;
   }
 
   _updateOverheadCamera(dt) {
@@ -431,6 +602,11 @@ export class TerrariumView {
     const arousal = circadianActivity(hour);
     this.key.intensity = sky.keyIntensity * (0.75 + 0.25 * arousal);
     this.ambientLight.intensity = sky.ambient * (0.75 + 0.25 * arousal);
+    this.lightBase = { key: this.key.intensity, ambient: this.ambientLight.intensity };
+    this.look = null;    // the intensities just set are the eye's: re-apply the whole eye look
+    this._lookFor('eye');
+    this.hemi.color.copy(sky.mid).lerp(DISPLAY_SKY_TINT, 0.35);
+    this.hemi.groundColor.copy(DISPLAY_SOIL).multiplyScalar(0.4 + 0.6 * Math.min(1, sky.keyIntensity / 1.65));
     const relative = sceneLightLevel(this.ambientLight.intensity, this.key.intensity) / DAY_REFERENCE_LIGHT;
     this.autoLiftGain = autoExposureGain(relative);
     this._applyExposure();
@@ -439,9 +615,14 @@ export class TerrariumView {
   // ---- snapshots ------------------------------------------------------------------------
   applySnapshot(snap) {
     this.snap = snap;
+    this._syncEyeRun();
     // flies
     while (this.flyViews.length < snap.poses.length) {
       const model = buildFlyModel();
+      // Her own body (the first fly is the one whose eye is rendered) is not
+      // in her eye: her limbs grooming in front of her face are not an
+      // approaching object. It stays in the view and in the shadow map.
+      if (this.flyViews.length === 0) model.root.traverse((o) => o.layers.set(DISPLAY_LAYER));
       this.scene.add(model.root);
       this.flyViews.push({ model, nodes: poseNodes(model) });
     }
@@ -495,9 +676,13 @@ export class TerrariumView {
 
   // ---- per displayed frame -------------------------------------------------------------------
   // `draw` false skips only the display render: every scene update and the
-  // eye's 20 Hz sample still happen, so the fly's vision does not change.
+  // eye's samples still happen, so the fly's vision does not change.
   frame(dt, tSeconds, draw = true) {
-    if (SHADOWS_ENABLED) this.renderer.shadowMap.needsUpdate = true;
+    // The shadow map is refreshed by the display render and reused by her eye:
+    // three.js fills it with the layers of the camera that renders first, and
+    // her own body (display layer) must cast its shadow in both.
+    const display = draw && !this.displayHidden;
+    if (SHADOWS_ENABLED && display) this.renderer.shadowMap.needsUpdate = true;
     this.dayNightT += dt;
     if (this.dayNightT > 2) { this.dayNightT = 0; this.updateDayNight(); }
     this._animateWeather(dt, tSeconds);
@@ -508,9 +693,65 @@ export class TerrariumView {
     if (this.cameraMode === 'follow' || this.cameraMode === 'close') this._updateFollowCamera(dt);
     else if (this.cameraMode === 'overhead') this._updateOverheadCamera(dt);
     else this.placeCamera();
-    this.visionT += dt;
-    if (this.visionEnabled && this.visionT >= 0.05) { this.visionT = 0; this._renderEye(); }
-    if (draw) this.renderer.render(this.scene, this.camera);
+    const want = this.viewInset, shown = this.viewInsetShown;
+    if (Math.abs(want.bottom - shown.bottom) > 0.5 || Math.abs(want.right - shown.right) > 0.5) {
+      const k = Math.min(1, dt * 9);
+      shown.bottom += (want.bottom - shown.bottom) * k;
+      shown.right += (want.right - shown.right) * k;
+      this._applyViewOffset();
+    }
+    if (display) { this._lookFor('display'); this._displayAtmosphere(); this.world.animateDisplay(tSeconds); this.renderer.render(this.scene, this.camera); }
+    // Her eye samples every EYE_SAMPLE_S of simulated time: the change
+    // between two samples (her visual input) must not depend on how fast
+    // this computer runs the simulation. A longer gap (a stalled page, a
+    // pause, a new fly) re-primes the eye instead of reading the whole gap's
+    // change as motion.
+    const simT = this.snap?.t;
+    if (this.visionEnabled && Number.isFinite(simT)) {
+      if (this.eyeSimT === undefined || simT < this.eyeSimT) this.eyeSimT = simT;
+      if (simT - this.eyeSimT >= EYE_SAMPLE_S) {
+        // With the display hidden the shadow map is still refreshed through
+        // the display camera (her own body casts its shadow from the display
+        // layer), drawn into a single pixel: her eye sees the same world.
+        if (!display && SHADOWS_ENABLED) this._refreshShadows();
+        if (this._renderEye()) this.eyeSimT = simT;
+      }
+    }
+  }
+
+  _refreshShadows() {
+    const r = this.renderer;
+    this.shadowProbe ??= new THREE.WebGLRenderTarget(1, 1);
+    r.shadowMap.needsUpdate = true;
+    this._lookFor('display');
+    this._displayAtmosphere();
+    r.setRenderTarget(this.shadowProbe);
+    r.render(this.scene, this.camera);
+    r.setRenderTarget(null);
+  }
+
+  // A sheet covering the bottom `px` of the pane (phone layout): the observer's
+  // camera shifts the picture up so the tank sits in the visible part. Display
+  // only; her eye has its own camera.
+  setViewInset(bottom, right = 0) {
+    this.viewInset = {
+      bottom: Math.max(0, Math.min(Number(bottom) || 0, this.pane.height * 0.75)),
+      right: Math.max(0, Math.min(Number(right) || 0, this.pane.width * 0.75)),
+    };
+  }
+  // Shifts the picture so the camera's centre sits in the uncovered part.
+  _applyViewOffset() {
+    const x = this.viewInsetShown.right / 2, y = this.viewInsetShown.bottom / 2;
+    if (x > 0.5 || y > 0.5) this.camera.setViewOffset(this.pane.width, this.pane.height, x, y, this.pane.width, this.pane.height);
+    else if (this.camera.view?.enabled) this.camera.clearViewOffset();
+  }
+
+  // The current view as a PNG data URL (snapshots outside Electron).
+  capturePNG() {
+    this._lookFor('display');
+    this._displayAtmosphere();
+    this.renderer.render(this.scene, this.camera);
+    return this.renderer.domElement.toDataURL('image/png');
   }
 
   _animateWeather(dt, t) {
@@ -546,30 +787,68 @@ export class TerrariumView {
   }
 
   // The fly's own eye: the same scene from her head, along her heading, at
-  // fixed exposure. The pixels come back asynchronously (a synchronous read
-  // stalls the whole GPU pipeline); ~16 ms of sensory latency, far below what
-  // the looming pathway integrates over.
+  // fixed exposure, without her own body. The pixels come back asynchronously
+  // (a synchronous read stalls the whole GPU pipeline): a sensory latency of
+  // 120-200 ms on integrated graphics in Chromium, measured 2026-10-01; the
+  // samples themselves stay 50 ms of simulated time apart (frame()).
   _renderEye() {
     const f = this.snap?.fly;
-    if (!f) return;
-    // The current read owns the previous frame's PBO. Rendering another eye
-    // frame while it is pending cannot produce a sensory sample: the read
-    // below would be skipped. Avoid that unused GPU pass, but leave the
-    // 20 Hz sampling check in frame() and every accepted read unchanged.
-    if (this.visionReadPending) return;
+    if (!f) return false;
+    this._syncEyeRun();
+    // A read waits for the GPU (in Chromium 120-200 ms on integrated
+    // graphics), so several are in flight, each into its own buffer, and
+    // their images are processed strictly in the order they were taken. With
+    // all slots busy this sample is not taken (no unused GPU pass).
+    if (this.eyeReads.length >= EYE_READS_IN_FLIGHT) return false;
     const headZ = f.z + 8;
     this.visionCamera.position.set(f.x, f.y, headZ);
     this.visionCamera.lookAt(f.x + Math.cos(f.heading) * 40, f.y + Math.sin(f.heading) * 40, headZ);
     const r = this.renderer;
+    this._lookFor('eye');
     r.toneMappingExposure = VISION_EXPOSURE;
     r.setRenderTarget(this.visionTarget);
     r.render(this.scene, this.visionCamera);
     r.setRenderTarget(null);
     r.toneMappingExposure = this.displayExposure;
+    const read = { pixels: this.eyePool.pop() ?? new Uint8Array(VISION_W * VISION_H * 4),
+      simT: this.snap.t, neuralRun: this.snap.neuralRun, individual: this.snap.individual, done: false, ok: false };
+    this.eyeReads.push(read);
     this.visionReadPending = true;
-    r.readRenderTargetPixelsAsync(this.visionTarget, 0, 0, VISION_W, VISION_H, this.visionPixels)
-      .then(() => { this.visionReadPending = false; this._processEye(); })
-      .catch(() => { this.visionReadPending = false; });
+    r.readRenderTargetPixelsAsync(this.visionTarget, 0, 0, VISION_W, VISION_H, read.pixels)
+      .then(() => { read.ok = true; }, () => {})
+      .then(() => { read.done = true; this._drainEye(); });
+    return true;
+  }
+
+  // Hands finished reads to _processEye oldest first; a read that finished
+  // early waits for those taken before it.
+  _drainEye() {
+    this._syncEyeRun();
+    while (this.eyeReads.length && this.eyeReads[0].done) {
+      const read = this.eyeReads.shift();
+      if (read.ok && read.neuralRun === this.snap?.neuralRun && read.individual === this.snap?.individual) {
+        this.visionPixels.set(read.pixels); this.eyeImageT = read.simT; this._processEye();
+      }
+      this.eyePool.push(read.pixels);
+    }
+    this.visionReadPending = this.eyeReads.length > 0;
+  }
+
+  _syncEyeRun() {
+    const snap = this.snap;
+    if (!snap || (this.eyeNeuralRun === snap.neuralRun && this.eyeIndividual === snap.individual)) return;
+    this.eyeNeuralRun = snap.neuralRun;
+    this.eyeIndividual = snap.individual;
+    this.eyePrimed = false;
+    this.eyePreviousT = undefined;
+    this.eyeSimT = snap.t;
+    this.visionMotionL = 0; this.visionMotionR = 0;
+    // Outstanding reads retain their own buffers until the GPU is finished;
+    // _drainEye recycles them without passing old-run pixels to the model.
+  }
+
+  _sendVision(L, R) {
+    this.onVision?.({ L, R, neuralRun: this.eyeNeuralRun, individual: this.eyeIndividual });
   }
 
   _processEye() {
@@ -584,7 +863,23 @@ export class TerrariumView {
     // nothing real to be compared with: against the initial black it would
     // read as the whole world appearing at once — a maximal looming stimulus
     // manufactured by the renderer. It only primes the comparison.
-    if (!this.eyePrimed) { this.eyePrimed = true; return; }
+    // The same holds after a gap of more than EYE_GAP_S of simulated time (a
+    // stalled page, a pause, a new fly whose clock restarts): the input is
+    // nothing until two close samples can be compared again. Decided per
+    // image, so reads still in flight from before a gap cannot bridge it.
+    const imageT = this.eyeImageT, previousT = this.eyePreviousT;
+    this.eyePreviousT = imageT;
+    const interval = Number.isFinite(imageT) && Number.isFinite(previousT) ? imageT - previousT : EYE_SAMPLE_S;
+    if (!this.eyePrimed || !(interval > 0) || interval > EYE_GAP_S) {
+      this.eyePrimed = true;
+      this.visionMotionL = 0; this.visionMotionR = 0;
+      this._sendVision(0, 0);
+      return;
+    }
+    // Motion energy per EYE_SAMPLE_S of simulated time: images are 50-120 ms
+    // apart (snapshots arrive in steps), and the looming detectors respond to
+    // the rate of expansion, not to how far apart two samples happened to be.
+    const perSample = Math.min(1, EYE_SAMPLE_S / interval);
     // Centre-surround antagonism removes self-motion flow and keeps compact,
     // locally different motion — what LC4/LPLC2 are tuned to (src/vision.js).
     localMotionResidual(this.visionMotion, VISION_W, VISION_H, this.visionResidual, this.visionSurround, this.visionScratch);
@@ -596,8 +891,8 @@ export class TerrariumView {
       }
     }
     const half = n / 2;
-    this.visionMotionL = sumL / half; this.visionMotionR = sumR / half;
-    this.onVision?.({ L: this.visionMotionL, R: this.visionMotionR });
+    this.visionMotionL = (sumL / half) * perSample; this.visionMotionR = (sumR / half) * perSample;
+    this._sendVision(this.visionMotionL, this.visionMotionR);
     if (this.visionPreview) this._paintEye();
   }
 
@@ -642,7 +937,26 @@ export class TerrariumView {
     const el = this.renderer.domElement;
     el.addEventListener('contextmenu', (e) => e.preventDefault());
     this.drag = null;
+    // Touch: one finger is the mouse's left button (drag the fly or an object,
+    // tap, swipe at her as a looming threat); two fingers turn the camera and
+    // pinch to zoom.
+    const touches = new Map();
+    const gestureOf = () => {
+      const [a, b] = [...touches.values()];
+      return { dist: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    };
     el.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch') {
+        touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (touches.size === 2) {
+          if (this.drag && this.drag.kind !== 'camera' && this.drag.kind !== 'pan' && this.drag.kind !== 'gesture') this.onCommand('drag.end', {});
+          this.downPoint = null;
+          this.onPointer?.(null);
+          this.drag = { kind: 'gesture', ...gestureOf() };
+          return;
+        }
+        if (touches.size > 2) return;
+      }
       if (e.button === 2) {
         if (this.cameraMode === 'overview') this.drag = { kind: e.shiftKey ? 'pan' : 'camera', x: e.clientX, y: e.clientY };
         return;
@@ -681,6 +995,24 @@ export class TerrariumView {
       }
     });
     window.addEventListener('pointermove', (e) => {
+      if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (this.drag?.kind === 'gesture') {
+        if (touches.size < 2) return;
+        const g = gestureOf();
+        if (g.dist > 0 && this.drag.dist > 0) this.setZoom(this.orbit.zoom * this.drag.dist / g.dist);
+        const dx = g.x - this.drag.x, dy = g.y - this.drag.y;
+        if (this.cameraMode === 'overhead') {
+          const scale = 2 * this.camera.position.z * Math.tan(this.camera.fov * Math.PI / 360) / this.pane.height;
+          this.orbit.panX = clampf(this.orbit.panX - dx * scale, -this.bounds.width / 2, this.bounds.width / 2);
+          this.orbit.panY = clampf(this.orbit.panY + dy * scale, -this.bounds.height / 2, this.bounds.height / 2);
+        } else {
+          this.orbit.azimuth -= dx * 0.006;
+          this.orbit.elevation = clampf(this.orbit.elevation - dy * 0.006, 0.08, 1.45);
+        }
+        this.drag = { kind: 'gesture', ...g };
+        this.onZoom?.(this.orbit.zoom);
+        return;
+      }
       const rect = el.getBoundingClientRect();
       const inside = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
       if (this.drag?.kind === 'camera') {
@@ -696,7 +1028,7 @@ export class TerrariumView {
         const distance = this.cameraMode === 'overhead'
           ? this.camera.position.z
           : overviewDistance(this.bounds, this.camera.fov, this.camera.aspect, this.orbitShown.azimuth, this.orbitShown.elevation) * this.orbitShown.zoom;
-        const scale = 2 * distance * Math.tan(this.camera.fov * Math.PI / 360) / this.bounds.height;
+        const scale = 2 * distance * Math.tan(this.camera.fov * Math.PI / 360) / this.pane.height;
         const ca = Math.cos(this.orbitShown.azimuth), sa = Math.sin(this.orbitShown.azimuth);
         this.orbit.panX = clampf(this.orbit.panX - dx * scale * ca - dy * scale * sa, -this.bounds.width / 2, this.bounds.width / 2);
         this.orbit.panY = clampf(this.orbit.panY - dx * scale * sa + dy * scale * ca, -this.bounds.height / 2, this.bounds.height / 2);
@@ -713,7 +1045,20 @@ export class TerrariumView {
       }
     });
     el.addEventListener('pointerleave', () => { if (!this.drag) this.onPointer?.(null); });
+    const lift = (e) => {
+      if (!touches.delete(e.pointerId)) return false;
+      if (this.drag?.kind === 'gesture') { if (touches.size < 2) this.drag = null; return true; }
+      // A lifted finger leaves no cursor resting near her.
+      setTimeout(() => { if (!this.drag) this.onPointer?.(null); }, 0);
+      return false;
+    };
+    window.addEventListener('pointercancel', (e) => {
+      if (lift(e)) return;
+      if (touches.size === 0 && this.drag && this.drag.kind !== 'camera' && this.drag.kind !== 'pan') { this.onCommand('drag.end', {}); this.drag = null; }
+    });
     window.addEventListener('pointerup', (e) => {
+      if (lift(e)) return;
+      if (this.drag?.kind === 'gesture') return;
       if (e.button === 2 || e.button === 1) { if (this.drag?.kind === 'camera' || this.drag?.kind === 'pan') this.drag = null; return; }
       if (this.drag && this.drag.kind !== 'camera' && this.drag.kind !== 'pan') this.onCommand('drag.end', {});
       else if (!this.drag && this.downPoint && e.target === el) this.onTap?.(this.downPoint);
@@ -729,11 +1074,14 @@ export class TerrariumView {
 
   resize() {
     const w = Math.max(100, this.container.clientWidth), h = Math.max(100, this.container.clientHeight);
-    if (w === this.bounds.width && h === this.bounds.height) return false;
-    this.bounds = { width: w, height: h };
+    const bounds = arenaBounds(w, h, this.minArenaSide);
+    if (w === this.pane.width && h === this.pane.height && bounds.width === this.bounds.width && bounds.height === this.bounds.height) return false;
+    this.pane = { width: w, height: h };
+    this.bounds = bounds;
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    this._applyViewOffset();
     if (this.cameraMode === 'overview') this.placeCamera();
     this.fitMapOverlay();
     this.fitShadowCamera();
@@ -753,6 +1101,6 @@ export class TerrariumView {
     const f = this.snap?.fly;
     if (!f) return null;
     const v = new THREE.Vector3(f.x, f.y, f.z + 14).project(this.camera);
-    return { x: (v.x + 1) / 2 * this.bounds.width, y: (1 - v.y) / 2 * this.bounds.height, visible: v.z < 1 };
+    return { x: (v.x + 1) / 2 * this.pane.width, y: (1 - v.y) / 2 * this.pane.height, visible: v.z < 1 };
   }
 }

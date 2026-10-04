@@ -53,11 +53,36 @@ check('adaptive render quality protects real-time simulation before lowering dis
   const initial = quality.pixelRatio;
   const low = quality.observe({ fps: 30, simulationRealtime: 0.8, droppedSecondsPerSecond: 0.01 });
   const stable = new AdaptiveRenderQuality({ minPixelRatio: 0.8, maxPixelRatio: 1.5, startPixelRatio: 1.2 });
-  stable.observe({ fps: 60, simulationRealtime: 1, droppedSecondsPerSecond: 0 });
-  stable.observe({ fps: 60, simulationRealtime: 1, droppedSecondsPerSecond: 0 });
+  for (let i = 0; i < 5; i++) stable.observe({ fps: 60, simulationRealtime: 1, droppedSecondsPerSecond: 0 });
   const recovered = stable.observe({ fps: 60, simulationRealtime: 1, droppedSecondsPerSecond: 0 });
   return [low < initial && Math.abs(recovered - 1.25) < 1e-10,
     `${initial.toFixed(2)} -> ${low.toFixed(2)} under load; ${recovered.toFixed(2)} after headroom`];
+});
+
+check('sustained load reaches minimum resolution with fewer reallocations and settling time', () => {
+  const quality = new AdaptiveRenderQuality();
+  const trace = Array.from({ length: 10 }, () => quality.observe({ fps: 30, simulationRealtime: 0.7 }));
+  const changes = trace.filter((v, i) => v !== (i ? trace[i - 1] : 1.5));
+  return [changes.join(',') === '1.25,1,0.75' && trace[1] === trace[0] && trace[2] === trace[0]
+    && trace[6] === 0.75, `${changes.length} buffer resizes over 10 windows; ratios ${trace.join(',')}`];
+});
+
+check('brief headroom never repeatedly grows and shrinks the canvas', () => {
+  const quality = new AdaptiveRenderQuality({ startPixelRatio: 0.75 });
+  const trace = [];
+  for (let i = 0; i < 40; i++) trace.push(quality.observe({
+    fps: i % 4 === 3 ? 35 : 60, simulationRealtime: i % 4 === 3 ? 0.8 : 1,
+  }));
+  return [trace.every(v => v === 0.75), '40 alternating load/headroom windows: zero buffer reallocations'];
+});
+
+check('quality tiers preserve non-grid bounds and sustained recovery', () => {
+  const quality = new AdaptiveRenderQuality({ minPixelRatio: 0.83, maxPixelRatio: 1.37 });
+  for (let i = 0; i < 12; i++) quality.observe({ fps: 20, simulationRealtime: 0.5 });
+  const floor = quality.pixelRatio;
+  const trace = Array.from({ length: 40 }, () => quality.observe({ fps: 60, simulationRealtime: 1 }));
+  return [floor === 0.83 && quality.pixelRatio === 1.37 && trace.every(v => v >= 0.83 && v <= 1.37),
+    `floor ${floor}, recovered to ${quality.pixelRatio}; every step remains within requested bounds`];
 });
 
 check('display pacing yields frames to a lagging simulation and returns them only after sustained headroom', () => {

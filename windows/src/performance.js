@@ -91,19 +91,30 @@ export class AdaptiveRenderQuality {
     this.maxPixelRatio = Math.max(this.minPixelRatio, maxPixelRatio);
     this.pixelRatio = Math.min(this.maxPixelRatio, Math.max(this.minPixelRatio, startPixelRatio));
     this.headroomWindows = 0;
+    this.resizeCooldown = 0;
   }
 
   observe({ fps = 0, simulationRealtime = 0, droppedSecondsPerSecond = 0 } = {}) {
+    // Called once per measurement window (~1 s). A canvas resize itself
+    // stalls integrated graphics; allow its effects to settle before sizing
+    // again, and use quarter-resolution tiers to reach the floor in fewer
+    // reallocations. Recovery requires sustained headroom.
+    const cooling = this.resizeCooldown > 0;
+    if (cooling) this.resizeCooldown--;
     const overloaded = fps < 42 || simulationRealtime < 0.92 || droppedSecondsPerSecond > 0.0005;
     if (overloaded) {
       this.headroomWindows = 0;
-      this.pixelRatio = Math.max(this.minPixelRatio, this.pixelRatio - 0.1);
+      if (!cooling) {
+        const next = Math.max(this.minPixelRatio, (Math.ceil(this.pixelRatio * 4 - 1e-8) - 1) / 4);
+        if (next !== this.pixelRatio) { this.pixelRatio = next; this.resizeCooldown = 2; }
+      }
       return this.pixelRatio;
     }
     const healthy = fps >= 58 && simulationRealtime >= 0.98 && droppedSecondsPerSecond <= 0.0005;
-    this.headroomWindows = healthy ? this.headroomWindows + 1 : 0;
-    if (this.headroomWindows >= 3) {
-      this.pixelRatio = Math.min(this.maxPixelRatio, this.pixelRatio + 0.05);
+    this.headroomWindows = healthy && !cooling ? this.headroomWindows + 1 : 0;
+    if (this.headroomWindows >= 6) {
+      const next = Math.min(this.maxPixelRatio, (Math.floor(this.pixelRatio * 4 + 1e-8) + 1) / 4);
+      if (next !== this.pixelRatio) { this.pixelRatio = next; this.resizeCooldown = 2; }
       this.headroomWindows = 0;
     }
     return this.pixelRatio;

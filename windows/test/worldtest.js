@@ -14,7 +14,7 @@ import { resetRandom } from './random.js';
 import { World } from '../src/world.js';
 import { Fly } from '../src/flymodel.js';
 import * as THREE from '../node_modules/three/build/three.module.js';
-import { overviewDistance } from '../renderer/view/terrarium.js';
+import { overviewDistance, TerrariumView } from '../renderer/view/terrarium.js';
 import { DISPLAY_LAYER } from '../src/world.js';
 
 const bounds = { width: 1512, height: 982 };
@@ -43,6 +43,8 @@ function check(name, fn) {
         ellipse(...args) { trace.push(['ellipse', ...args, this.fillStyle]); },
         arc(...args) { trace.push(['arc', ...args, this.fillStyle]); },
         fill() {},
+        // used only by the observer's bench and pond-shimmer textures
+        moveTo() {}, lineTo() {}, stroke() {},
       };
       return { width: 0, height: 0, trace, getContext: () => context };
     },
@@ -96,6 +98,68 @@ for (const [w, h, azimuth, elevation] of [[1512, 982, 0.42, 0.68], [550, 920, 1.
     if (Math.abs(p.x) > 1 || Math.abs(p.y) > 1 || p.z > 1) outside++;
   }
   check(`overview fits tank corners at ${w}×${h}`, () => [outside === 0, `${outside} corners clipped`]);
+}
+
+// Follow and close previously used one fixed boom irrespective of pane
+// aspect: the initialized fly lost ~14% of its visible vertices at aspect
+// 0.6 in close view. Exercise the actual visible geometry and camera method,
+// including a boom shortened by the narrow tank's glass, not an idealized
+// camera that bypasses its obstacle handling.
+{
+  resetRandom('worldtest-camera');
+  const fly = new Fly({ x: 0, y: 0 });
+  fly.node.position.set(0, 0, 0);
+  const modelPoints = [];
+  function collectPoints(heading) {
+    fly.node.rotation.z = heading - Math.PI / 2;
+    fly.node.updateMatrixWorld(true);
+    modelPoints.length = 0;
+    fly.node.traverseVisible((o) => {
+      if (!o.isMesh) return;
+      const vertices = o.geometry.attributes.position;
+      for (let i = 0; i < vertices.count; i++) {
+        modelPoints.push(new THREE.Vector3().fromBufferAttribute(vertices, i).applyMatrix4(o.matrixWorld));
+      }
+    });
+  }
+  function followed(mode, aspect, zoom = 1, heading = 0) {
+    const view = Object.create(TerrariumView.prototype);
+    Object.assign(view, {
+      cameraMode: mode, orbitShown: { zoom, azimuth: 0.42 },
+      bounds: { width: Math.max(300, 920 * aspect), height: 920 },
+      snap: { t: 12.5, fly: { x: 0, y: 0, z: 0, heading } },
+      world: { objects: [] }, flyViews: [{ model: fly.model }],
+      camera: new THREE.PerspectiveCamera(mode === 'close' ? 36 : 40, aspect, 8, 6000),
+      followLookAt: new THREE.Vector3(),
+    });
+    const before = JSON.stringify(view.snap);
+    view._updateFollowCamera(1);
+    view.camera.updateMatrixWorld(true);
+    if (JSON.stringify(view.snap) !== before) throw new Error('Observer camera mutated the simulation snapshot');
+    return view;
+  }
+  for (const mode of ['follow', 'close']) for (const aspect of [0.35, 0.6, 1.0, 1.7]) {
+    let outside = 0, tested = 0;
+    for (const heading of [0, Math.PI / 2, -2.4]) {
+      collectPoints(heading);
+      const view = followed(mode, aspect, 1, heading);
+      for (const point of modelPoints) {
+        const p = point.clone().project(view.camera);
+        if (Math.abs(p.x) > 1 || Math.abs(p.y) > 1 || p.z < -1 || p.z > 1) outside++;
+        tested++;
+      }
+    }
+    check(`${mode} fits the visible fly at aspect ${aspect}`, () => [outside === 0,
+      `${outside}/${tested} visible vertices clipped across three headings; snapshot unchanged`]);
+  }
+  for (const mode of ['follow', 'close']) {
+    const normal = followed(mode, 0.6, 1), macro = followed(mode, 0.6, 0.5);
+    const centre = new THREE.Vector3(0, 0, 7);
+    const normalDistance = normal.camera.position.distanceTo(centre);
+    const macroDistance = macro.camera.position.distanceTo(centre);
+    check(`${mode} still allows intentional macro zoom after fitting`, () => [macroDistance < normalDistance * 0.7,
+      `default=${normalDistance.toFixed(1)}, zoom-in=${macroDistance.toFixed(1)} scene units`]);
+  }
 }
 
 // ---- a freshly spawned fly should never land inside an existing object ----

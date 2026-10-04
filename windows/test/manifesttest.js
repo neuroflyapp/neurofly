@@ -114,5 +114,57 @@ check('protocol snapshots preserve intervention history and neural timing withou
   return [ok, `history=${manifest.protocolHistory.length}, neural time=${manifest.model.neuralTimeMs} ms`];
 });
 
+check('actual shared-cell coupling and calibrated parameters are immutable metadata, not guessed from sex', () => {
+  const simulation = {
+    locomotor: { mirrorDescending: true, stepper: { p: { stanceLoad: 0.6, swingSpeed: 2 } }, parameters: { synapticGain: 2.4, rhythm: { speed: 1 } } },
+    identityCoupled: true, identityPairs: { descending: 15, ascending: 18 },
+    ascend: Array(221), ascendMirrored: Uint8Array.from({ length: 221 }, (_, i) => i < 18 ? 1 : 0),
+    weightScale: 0.0002, synapseScale: 3.7, pathwayWeight: 0.0864, pathwayRecurrent: 0.025,
+    pathwayCap: 0.5, arousalScale: 0.97, gf: [0, 1], thresholds: Float32Array.of(1.8, 1.8),
+  };
+  const data = { circuit: {
+    neurons: Array(3), edges: Array(4), synapseScale: 3.7, gfThreshold: 1.8,
+    arousalScale: 0.97, pathwayCalibration: { weightScale: 14, recurrentFraction: 0.025 },
+    frame: { to: 'FAFB v783', rmsMicrometres: 44.9 },
+    sources: { annotations: { sha256: 'native-source' } },
+  }, provenance: { flyModel: 'female', rhythmDecoderSHA256: 'decoder', rhythmDecoderStatus: 'attached',
+    rhythmDecoder: { decoders: 36 }, locomotorContentSHA256: 'lf-cord' } };
+  const manifest = makeExperimentManifest({ data, simulation });
+  simulation.identityPairs.descending = 999;
+  simulation.thresholds.fill(5);
+  simulation.locomotor.parameters.rhythm.speed = 999;
+  simulation.locomotor.stepper.p.stanceLoad = 999;
+  data.circuit.pathwayCalibration.weightScale = 999;
+  data.circuit.frame.rmsMicrometres = 999;
+  data.circuit.sources.annotations.sha256 = 'changed';
+  const coupling = manifest.model.brainVncCoupling, params = manifest.model.parameters;
+  const ok = manifest.model.flyModel === 'female' && coupling.mode === 'shared-cell-spike-transfer'
+    && coupling.sharedDescendingCells === 15 && coupling.sharedAscendingCells === 18
+    && coupling.populationRateAscendingTargets === 203 && coupling.populationRateDescendingDrive === false
+    && params.coreSynapseScale === 3.7 && params.pathwayRecurrentFraction === 0.025
+    && params.arousalScale === 0.97 && params.giantFiberThresholds[0] === Math.fround(1.8)
+    && params.cordParameters.rhythm.speed === 1 && params.steppingRulesActive === true
+    && params.steppingRuleParameters.stanceLoad === 0.6 && params.steppingRuleParameters.swingSpeed === 2
+    && manifest.model.declaredCalibration.pathwayCalibration.weightScale === 14
+    && manifest.data.brainCoordinateRegistration.rmsMicrometres === 44.9
+    && manifest.data.brainSources.annotations.sha256 === 'native-source'
+    && manifest.data.rhythmDecoderSHA256 === 'decoder' && manifest.data.vncContentSHA256 === 'lf-cord';
+  return [ok, `${coupling.sharedDescendingCells}/${coupling.sharedAscendingCells} shared cells; ${coupling.populationRateAscendingTargets} unmatched rate-feedback targets`];
+});
+
+check('unknown runtime coupling is not silently labelled as a measured cross-specimen bridge', () => {
+  const unknown = makeExperimentManifest({ data: { provenance: { flyModel: 'male' } } });
+  const incomplete = makeExperimentManifest({ simulation: { locomotor: {} } });
+  const absent = makeExperimentManifest({ simulation: { locomotor: null } });
+  const ok = unknown.model.brainVncCoupling.mode === 'unreported'
+    && unknown.model.brainVncCoupling.sharedDescendingCells === null
+    && unknown.model.parameters.coreSynapseScale === null && unknown.model.parameters.steppingRulesActive === null
+    && unknown.model.parameters.steppingRuleParameters === null
+    && incomplete.model.brainVncCoupling.mode === 'unreported'
+    && absent.model.brainVncCoupling.mode === 'no-nerve-cord'
+    && absent.model.brainVncCoupling.sharedDescendingCells === 0 && absent.model.parameters.steppingRulesActive === false;
+  return [ok, `unknown=${unknown.model.brainVncCoupling.mode}; absent=${absent.model.brainVncCoupling.mode}`];
+});
+
 console.log(failures === 0 ? 'ALL MANIFEST TESTS PASS' : `${failures} MANIFEST TESTS FAILED`);
 process.exit(failures === 0 ? 0 : 1);

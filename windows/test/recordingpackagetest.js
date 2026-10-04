@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { recordingPackageJSON } from '../src/recording-package.js';
 import { recordingState, recordingExitPolicy } from '../src/recording-guard.js';
 import { ClosedLoop } from '../src/closed-loop.js';
-import { Recorder } from '../src/recording.js';
+import { Recorder, RECORDING_COLUMNS } from '../src/recording.js';
 import { SamplingClock } from '../src/sampling-clock.js';
 const start = { session: { id: 'same', neuralRun: 1 }, createdAt: 'start', environment: { tempC: 24 } };
 const end = { session: { id: 'same', neuralRun: 2 }, createdAt: 'end', environment: { tempC: 29 } };
@@ -46,6 +46,23 @@ function recordingRig(maxRows = 10) {
     },
   });
   return rig;
+}
+
+{
+  const rig = recordingRig();
+  rig.sim.locomotor = { mirrorDescending: true };
+  rig.sim.identityCoupled = true;
+  rig.sim.identityPairs = { descending: 15, ascending: 18 };
+  rig._captureSample();
+  rig.sim.identityCoupled = false;
+  rig.sim.locomotor.mirrorDescending = false;
+  rig.sim.identityPairs = { descending: 0, ascending: 0 };
+  rig._captureSample();
+  const rows = rig.recorder.toCSV().trim().split('\n');
+  const bridge = RECORDING_COLUMNS.findIndex((column) => column.key === 'brainVncBridge');
+  assert.equal(rows[1].split(',')[bridge], 'modeled shared-cell spike transfer with population-rate feedback to unmatched ascending cells');
+  assert.equal(rows[2].split(',')[bridge], 'modeled same-type/side population-rate interface');
+  console.log('PASS real CSV capture reports runtime shared-cell versus population-rate coupling without changing column order');
 }
 
 {

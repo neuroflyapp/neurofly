@@ -22,6 +22,7 @@ The fly's behaviour is not animated. It falls out of a leaky integrate-and-fire
 |---|---|
 | Brain | 7,270 FlyWire FAFB v783 neurons, 784,219 signed synapse-count connections: a 6,338-neuron escape/steering subgraph, 16 thermosensors with 52 relays, and the taste (sugar/water, bitter → proboscis) and antennal-grooming (JO-F → DNg12) pathways |
 | Nerve cord | 1,045 MaleCNS v1.0 neurons for walking, with leg-specific motor and sensory channels and feedback |
+| Three flies | the original model above (female FlyWire brain + male MaleCNS cord, joined by a modelled population-rate interface); a **male** fly whose brain (7,337 neurons, 177,521 connections) and nerve cord (1,045 neurons) come from the same MaleCNS v1.0 animal; a **female** fly whose brain (7,013 neurons, 62,804 connections) and nerve cord (1,000 neurons) come from the same BANC v888 animal. In the single-animal flies the cord's descending and ascending cells are the brain's own cells, coupled spike by spike |
 | Timestep | 1 ms neural integration; the full sensing → neurons → body → feedback loop at 120 Hz, in a Web Worker |
 | Anatomy explorer | female BANC v888 and male MaleCNS v1.0 (brain + nerve cord each), the male MANC v1.0 nerve cord, the male optic lobe v1.1 and FAFB v783 — each a separate specimen, browsable as anatomy, never wired into another |
 
@@ -62,11 +63,18 @@ corrections log of claims that were measured and then had to be withdrawn.
 
 ## Download
 
-The portable build for Windows 10 and 11 (64-bit) is on the
-[releases page](https://github.com/neuroflyapp/neurofly/releases/latest): unzip
-it anywhere and start `NeuroCause.exe`; nothing is installed. The build is not code-signed
-yet, so Windows may warn on first start (More info → Run anyway). By
-downloading you accept the [software terms](https://neuro-cause.com/software-terms.html).
+Both builds are on the [releases page](https://github.com/neuroflyapp/neurofly/releases/latest)
+and at [neuro-cause.com](https://neuro-cause.com/#get), each with its SHA-256:
+
+- **Windows 10 and 11 (64-bit):** a portable ZIP. Unzip it anywhere and start
+  `NeuroCause.exe`; nothing is installed. The build is not code-signed yet, so
+  Windows may warn on first start (More info → Run anyway).
+- **Android 7.0 or newer** (phones and tablets with OpenGL ES 3.0): an APK.
+  Android asks once to allow installs from the browser or file manager you
+  open it with. The app runs entirely on the device and sends nothing.
+
+The [software terms](https://neuro-cause.com/software-terms.html) apply to
+every download; both apps ask you to accept them before they start.
 
 ## Run it from source
 
@@ -93,6 +101,10 @@ node etl_thermo_extension.mjs             # hot/cold thermosensors + relays
 node etl_sensory_extension.mjs            # taste and antennal-grooming pathways
 node etl_pathways.mjs                     # full-connectome pathway audit (sentience map)
 python3 etl_malecns.py <raw_malecns_dir> --download   # walking circuit
+python3 etl_malecns_brain.py <raw_malecns_dir>        # the male fly's brain (data/male/)
+python3 etl_banc_adapter.py <raw_banc_dir> <out_dir>  # BANC in the MaleCNS vocabulary, then:
+python3 etl_malecns_brain.py <out_dir> female "BANC v888"   # the female fly's brain
+python3 etl_malecns.py <out_dir> --out data/female           # and her nerve cord
 ```
 
 The anatomy-explorer bundles in `windows/assets/connectomes/` are built by
@@ -104,7 +116,9 @@ Program code: [PolyForm Noncommercial License 1.0.0](LICENSE). Research,
 teaching, personal study and use by non-profit and public institutions are
 permitted; commercial use needs a licence from NeuroCause
 (contact@neuro-cause.com). Bundled third-party software (three.js, Electron)
-is listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+is listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md); the Android
+app carries its own notice (three.js, Capacitor, AndroidX and others), shown
+in the app under More → Licences and data sources.
 
 The bundled neural data is licensed separately and requires attribution:
 FlyWire FAFB v783 under **CC BY-NC 4.0** (non-commercial); MaleCNS v1.0, the

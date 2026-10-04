@@ -128,6 +128,10 @@ export const PATHWAY_EDGE_CAP = 0.5;
 // threshold (0/8 takeoffs at 0.14, 8/8 at 0.16), the 5 ms latency to an
 // abrupt loom and the wind-vs-sound specificity (0 vs 34 GF spikes) stay as
 // they were. A modelling choice, not a measured value.
+// A spike of an ascending cell in the cord reaches its brain copy as a
+// supra-threshold input, so the copy fires in the next millisecond (unless
+// refractory); only used when brain and cord come from the same animal.
+const ASCENDING_TWIN_KICK = 2.0;
 export const GF_THRESHOLD = 1.15;
 
 export const SPARSE_PATHWAY_WEIGHT = 0.275 * (5 / 15) * (Math.exp(-(Math.log(4) * 20 / 3) / 20) - Math.exp(-(Math.log(4) * 20 / 3) / 5)) / 7;
@@ -194,14 +198,21 @@ export class SimulationClock {
   }
 
   // Runs as many whole ticks as the received time allows; returns how many.
-  advance(elapsed, tick, maxSeconds = 0.1) {
-    if (!(Number.isFinite(elapsed) && elapsed > 0)) return 0;
+  // With `maxTicks` it runs at most that many and keeps the rest for the next
+  // call (so a caller can hand out results between short chunks); the backlog
+  // then never exceeds `maxSeconds`, and what lies beyond counts as dropped.
+  advance(elapsed, tick, maxSeconds = 0.1, maxTicks = Infinity) {
+    if (!(Number.isFinite(elapsed) && elapsed >= 0)) return 0;
     const taken = Math.min(maxSeconds, elapsed);
     this.droppedSeconds += elapsed - taken;
     this.accumulator += taken;
+    if (maxTicks !== Infinity && this.accumulator > maxSeconds) {
+      this.droppedSeconds += this.accumulator - maxSeconds;
+      this.accumulator = maxSeconds;
+    }
     const dt = SimulationClock.fixedDT;
     let count = 0;
-    for (; this.accumulator + 1e-10 >= dt; count++) {
+    for (; count < maxTicks && this.accumulator + 1e-10 >= dt; count++) {
       this.accumulator -= dt;
       tick(dt);
     }
@@ -313,9 +324,13 @@ function restingDrive(cell, random) {
 }
 
 export class LIFSim {
+  // A bundle may carry its own pathway calibration (data.js FLY_MODELS: the
+  // male fly's taste and grooming pathways were calibrated against the same
+  // criteria as the female's); explicit options still win.
   constructor(circuit, spikeBus = null, locomotorCircuit = null, { seed = freshNeuralSeed(), plasticity = null,
-    pathwayWeight = SPARSE_PATHWAY_WEIGHT, pathwayRecurrent = PATHWAY_RECURRENT_FRACTION,
-    pathwayCap = PATHWAY_EDGE_CAP, gfThreshold = GF_THRESHOLD } = {}) {
+    pathwayWeight = SPARSE_PATHWAY_WEIGHT * (circuit?.pathwayCalibration?.weightScale ?? 1),
+    pathwayRecurrent = circuit?.pathwayCalibration?.recurrentFraction ?? PATHWAY_RECURRENT_FRACTION,
+    pathwayCap = PATHWAY_EDGE_CAP, gfThreshold = circuit?.gfThreshold ?? GF_THRESHOLD } = {}) {
     this.audit = auditBrainCircuit(circuit);
     if (!this.audit.valid) throw new Error(`Invalid FlyWire circuit: ${this.audit.errors.slice(0, 3).join('; ')}`);
     this.neuralSeed = (Number(seed) >>> 0) || 0x6d2b79f5;
@@ -473,6 +488,26 @@ export class LIFSim {
     }
     this.cordSourceRates = new Float32Array(groupOfKey.size);
     this.cordSourceGain = Float32Array.from(this.cordSourceGroups, (g) => 1000 / g.count);
+    // A brain and cord from the same animal (the male model) share cells: the
+    // cord's descending and ascending neurons are, by body ID, the very cells
+    // the brain circuit also contains. Their spikes then cross one by one in
+    // both directions instead of through the population-rate interface. With
+    // a brain from another animal (FlyWire) no IDs match and nothing changes.
+    this.cordTwin = null; this.ascendTwins = null; this.ascendMirrored = null; this.identityCoupled = false;
+    if (this.locomotor) {
+      const { descending, ascending } = this.locomotor.identityCoupling(neurons);
+      if (descending.length) {
+        this.cordTwin = new Int32Array(n).fill(-1);
+        for (const [cordIndex, brainIndex] of descending) this.cordTwin[brainIndex] = cordIndex;
+      }
+      if (ascending.length) {
+        this.ascendTwins = Int32Array.from(ascending.flat());
+        const mirrored = new Set(ascending.map(([, brainIndex]) => brainIndex));
+        this.ascendMirrored = Uint8Array.from(this.ascend, (i) => (mirrored.has(i) ? 1 : 0));
+      }
+      this.identityCoupled = descending.length + ascending.length > 0;
+      this.identityPairs = { descending: descending.length, ascending: ascending.length };
+    }
 
     // ---- population codes, rate gains ------------------------------------
     this.popCode = new Uint8Array(n);
@@ -565,6 +600,15 @@ export class LIFSim {
     this.pathwayCap = pathwayCap;
     const layerOf = (i) => (Number.isFinite(neurons[i].layer) ? neurons[i].layer : 1);
     const nextSlot = this.rowStart.slice(0, n);
+    // A specimen whose synapse detection yields systematically smaller counts
+    // (BANC's brain: ~140 synapses per circuit neuron against FlyWire's ~520)
+    // carries a scale that gives its core the same mean synaptic load; 1 for
+    // FlyWire and MaleCNS (data.js FLY_MODELS).
+    const synapseScale = circuit?.synapseScale ?? 1;
+    this.synapseScale = synapseScale;
+    // Arousal reads the central rate referenced to FlyWire's resting level;
+    // a network that rests higher carries its own factor (FLY_MODELS).
+    this.arousalScale = circuit?.arousalScale ?? 1;
     for (const edge of edges) {
       const pre = edge[0] | 0;
       const post = edge[1] | 0;
@@ -573,7 +617,7 @@ export class LIFSim {
       // recurrent fraction (see PATHWAY_RECURRENT_FRACTION)
       const sameModule = mod !== 0 && mod === sparseModule(post);
       const forward = sameModule && layerOf(post) > layerOf(pre);
-      let weight = edge[2] * (forward ? pathwayWeight : sameModule ? pathwayWeight * this.pathwayRecurrent : this.weightScale);
+      let weight = edge[2] * (forward ? pathwayWeight : sameModule ? pathwayWeight * this.pathwayRecurrent : this.weightScale * synapseScale);
       if (sameModule && pathwayCap) weight = Math.max(-pathwayCap, Math.min(pathwayCap, weight));
       if (sameModule) this.sparseEdgeCount++;
       if (this.roles[post] === 'gf' && coupledToGF(pre)) weight *= GAP_JUNCTION_BOOST;
@@ -1184,7 +1228,9 @@ export class LIFSim {
             for (let k = 0; k < ascend.length; k++) ascendWave[k] = 0.5 + 0.5 * Math.sin(ph + this.ascendPhase[k]);
             ascendWaveReady = true;
           }
+          const mirrored = this.ascendMirrored;
           for (let k = 0; k < ascend.length; k++) {
+            if (mirrored && mirrored[k]) continue;   // driven by its own spikes in the cord
             v[ascend[k]] += ascendGain * ascendWave[k];
           }
         }
@@ -1345,12 +1391,20 @@ export class LIFSim {
         const rates = this.cordSourceRates, gain = this.cordSourceGain;
         const groups = this.cordSourceGroups, cordOf = this.cordSourceOf;
         for (let i = 0; i < rates.length; i++) rates[i] *= 1 - a;
+        const twin = this.cordTwin;
         for (let fired = 0; fired < nSpiked; fired++) {
           const group = cordOf[spiked[fired]];
           if (group >= 0) rates[group] += gain[group] * a;
+          if (twin) { const c = twin[spiked[fired]]; if (c >= 0) cord.inject(c); }
         }
         for (let i = 0; i < groups.length; i++) cord.setDescendingKey(groups[i].key, rates[i]);
         cord.step(1, false);
+        // the same ascending cells, firing in the cord, fire in the brain next millisecond
+        const asc = this.ascendTwins;
+        if (asc) {
+          const fired = cord.spikedNow;
+          for (let q = 0; q < asc.length; q += 2) if (fired[asc[q]]) v[asc[q + 1]] += ASCENDING_TWIN_KICK;
+        }
       }
 
       if (bus) {

@@ -82,6 +82,7 @@ export const STATUS = Object.freeze({
   partial: 'partial',
   experimental: 'experimental',
   absent: 'absent',
+  notAssessed: 'not-assessed',
   notMeasurable: 'not-measurable',
 });
 
@@ -109,13 +110,33 @@ export function assessSentience({ circuit = null, provenance = null, pathways = 
   const neurons = circuit?.neurons || [];
   const count = (pred) => neurons.filter(pred).length;
   const hot = count((n) => n.thermoGroup === 'hot'), cold = count((n) => n.thermoGroup === 'cold');
-  const bitter = count((n) => n.extension === 'taste' && n.sensoryGroup === 'bitter');
-  const sugar = count((n) => n.extension === 'taste' && n.sensoryGroup === 'sugar');
+  // Existing core receptors receive extensionTag instead of being appended
+  // twice. Count the same input targets as LIFSim's *Drive populations.
+  const receptor = (n, extension, group) => (n.extension === extension && n.sensoryGroup === group)
+    || (!n.extension && n.extensionTag?.sensoryGroup === group);
+  const bitter = count((n) => receptor(n, 'taste', 'bitter'));
+  const sugar = count((n) => receptor(n, 'taste', 'sugar'));
   const proboscis = count((n) => n.extension === 'taste' && n.motorGroup);
-  const joF = count((n) => n.extension === 'grooming' && n.sensoryGroup === 'jof');
+  const joF = count((n) => receptor(n, 'grooming', 'jof'));
   const dng12 = count((n) => n.extension === 'grooming' && n.motorGroup === 'dng12');
   const mb = countTypes(circuit, MB_RE), mbLearn = countTypes(circuit, MB_LEARNING_RE), cx = countTypes(circuit, CX_RE);
-  const route = (src, region) => pathways?.sources?.[src]?.regions?.[region] ?? null;
+  // The legacy full-brain route table is FAFB, even when the live fly uses
+  // MaleCNS or BANC. Cross-specimen reference paths are not evidence about
+  // this animal's graph. An unidentified table never counts as a match.
+  const runningBrainId = provenance?.specimens?.brain?.id
+    ?? ({ mixed: 'fafb-v783', male: 'malecns-v1', female: 'banc-v888' }[provenance?.flyModel])
+    ?? (/FAFB v783/.test(circuit?.source || '') ? 'fafb-v783' : null);
+  const pathwayBrainId = pathways?.specimenId
+    ?? (/FAFB v783/.test(pathways?.source || '') ? 'fafb-v783' : null);
+  const pathwayMatches = !!runningBrainId && runningBrainId === pathwayBrainId;
+  const anatomicalAnalysis = Object.freeze({
+    status: !pathways ? 'absent' : pathwayMatches ? 'matched-specimen' : 'unmatched-reference',
+    runningBrainId, pathwayBrainId,
+    runningBrain: provenance?.specimens?.brain?.name ?? circuit?.source ?? null,
+    source: pathways?.source ?? null,
+    scope: 'Full-graph anatomical routes do not establish retained or dynamically effective routes in a reduced simulation.',
+  });
+  const route = (src, region) => pathwayMatches ? pathways?.sources?.[src]?.regions?.[region] ?? null : null;
   const hotMB = route('hot', 'mushroomBody'), bitterMB = route('bitter', 'mushroomBody'), hotCX = route('hot', 'centralComplex');
 
   const criteria = [
@@ -135,8 +156,9 @@ export function assessSentience({ circuit = null, provenance = null, pathways = 
     {
       id: 'integrated-nociception', n: 3, group: 'neurobiological', name: 'Integrated nociception',
       question: 'Are the noxious-stimulus receptors connected to those integrative regions?',
-      status: hotMB || bitterMB ? STATUS.partial : STATUS.absent,
-      anatomy: { hotToMushroomBody: hotMB, bitterToMushroomBody: bitterMB, hotToCentralComplex: hotCX },
+      status: !pathwayMatches ? STATUS.notAssessed : hotMB || bitterMB ? STATUS.partial : STATUS.absent,
+      anatomy: pathwayMatches ? { hotToMushroomBody: hotMB, bitterToMushroomBody: bitterMB, hotToCentralComplex: hotCX } : null,
+      anatomicalAnalysis,
     },
     {
       id: 'analgesia', n: 4, group: 'neurobiological', name: 'Analgesia',
@@ -181,6 +203,7 @@ export function assessSentience({ circuit = null, provenance = null, pathways = 
     partial: criteria.filter((c) => c.status === STATUS.partial).length,
     experimental: criteria.filter((c) => c.status === STATUS.experimental).length,
     absent: criteria.filter((c) => c.status === STATUS.absent).length,
+    notAssessed: criteria.filter((c) => c.status === STATUS.notAssessed).length,
   };
   const animalStrong = criteria.filter((c) => c.animal === 'VH' || c.animal === 'H').length;
   return Object.freeze({
@@ -190,6 +213,7 @@ export function assessSentience({ circuit = null, provenance = null, pathways = 
     items: [...criteria, subjective],
     counts,
     animalStrong,
+    anatomicalAnalysis,
     conclusion: 'Evidence map against the Birch et al. (2021) criteria — not a sentience score and not a proof of feeling.',
     provenanceStatus: { thermo: provenance?.thermoExtensionStatus ?? 'absent', sensory: provenance?.sensoryExtensionStatus ?? 'absent' },
   });

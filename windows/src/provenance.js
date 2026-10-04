@@ -6,20 +6,25 @@
 // recorded trial can identify both the exact input bundle and its neural RNG
 // seed.  It intentionally does not manufacture a "sentience score".
 
-export const MODEL_VERSION = '2.3.0';
+export const MODEL_VERSION = '2.4.0';
 export const BRAIN_DATASET = 'FlyWire FAFB v783';
 export const VNC_DATASET = 'MaleCNS v1.0';
 
 export const SCIENTIFIC_SCOPE = Object.freeze({
   measured: Object.freeze([
-    'retained neuron identities, positions and signed synapse-count edges',
-    'named FlyWire and MaleCNS cell annotations supplied in the data bundle',
+    'retained neuron identities, reconstructed positions and anatomical contact counts',
+  ]),
+  annotatedOrPredicted: Object.freeze([
+    'named FlyWire, MaleCNS and BANC cell annotations supplied in the data bundle',
+    'transmitter identity and synaptic sign inferred from source annotations or predictions',
+  ]),
+  simulationOutputs: Object.freeze([
     'simulated spike events and population rates',
   ]),
   modeled: Object.freeze([
     'LIF membrane parameters, stochastic drive and synaptic gain',
     'sensory transduction, body mechanics and muscle activation',
-    'same-type population-rate bridge between female FlyWire brain and male VNC',
+    'cross-specimen population-rate interface or same-specimen shared-cell spike transfer, with residual population feedback',
   ]),
   notInferable: Object.freeze([
     'subjective experience, consciousness, pain or emotion',
@@ -108,10 +113,46 @@ export function fingerprintText(text) {
   return h.toString(16).padStart(8, '0');
 }
 
-export function runDescriptor({ circuit, locomotor = null, seed = 1, dataFingerprint = null } = {}) {
+function nonnegativeCount(value) {
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+// Describe what the constructed simulator actually uses, not what a chosen
+// specimen ought to use. Even the same-animal models retain rate-based
+// feedback onto unmatched ascending cells and rate-informed stepping rules.
+// Matching IDs establish anatomical identity; spike transfer remains a model.
+export function brainVncCoupling(simulation = null) {
+  const cord = simulation?.locomotor;
+  const observed = cord === null || (cord !== undefined && typeof simulation.identityCoupled === 'boolean');
+  const shared = cord && simulation.identityCoupled === true;
+  const mode = !observed ? 'unreported' : !cord ? 'no-nerve-cord'
+    : shared ? 'shared-cell-spike-transfer' : 'population-rate-interface';
+  const label = !observed ? 'modeled interface (runtime mode unreported)'
+    : !cord ? 'no nerve-cord circuit'
+      : shared ? 'modeled shared-cell spike transfer with population-rate feedback to unmatched ascending cells'
+        : 'modeled same-type/side population-rate interface';
+  const ascendingTargets = nonnegativeCount(simulation?.ascend?.length);
+  let rateTargets = null;
+  if (cord && ascendingTargets !== null) {
+    let mirrored = 0;
+    for (const value of simulation.ascendMirrored || []) if (value) mirrored++;
+    rateTargets = Math.max(0, ascendingTargets - mirrored);
+  }
+  return Object.freeze({
+    mode, label,
+    sharedDescendingCells: cord ? nonnegativeCount(simulation.identityPairs?.descending) : observed ? 0 : null,
+    sharedAscendingCells: cord ? nonnegativeCount(simulation.identityPairs?.ascending) : observed ? 0 : null,
+    populationRateAscendingTargets: rateTargets,
+    populationRateDescendingDrive: cord ? (typeof cord.mirrorDescending === 'boolean' ? !cord.mirrorDescending : null) : observed ? false : null,
+    scope: 'Anatomical cell identity and modelled propagation are distinct. Shared-cell transfer is not an additional measured cross-domain synapse; unmatched ascending feedback and stepping rules remain model assumptions.',
+  });
+}
+
+export function runDescriptor({ circuit, locomotor = null, simulation = null, seed = 1, dataFingerprint = null } = {}) {
   const audit = auditBrainCircuit(circuit);
   const vncNeurons = Array.isArray(locomotor?.neurons) ? locomotor.neurons.length : 0;
   const vncEdges = Array.isArray(locomotor?.edges) ? locomotor.edges.length : 0;
+  const coupling = brainVncCoupling(simulation);
   return Object.freeze({
     modelVersion: MODEL_VERSION,
     brainDataset: circuit?.source || BRAIN_DATASET,
@@ -122,7 +163,8 @@ export function runDescriptor({ circuit, locomotor = null, seed = 1, dataFingerp
     vncEdges,
     neuralSeed: seed >>> 0,
     dataFingerprint: dataFingerprint || fingerprintText(`${audit.neurons}/${audit.edges}/${circuit?.source || ''}`),
-    bridge: 'modeled same-type/side population-rate interface',
+    bridge: coupling.label,
+    coupling,
     valid: audit.valid,
   });
 }

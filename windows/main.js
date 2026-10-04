@@ -12,8 +12,9 @@
 import { app, BrowserWindow, Tray, Menu, powerMonitor, nativeImage, ipcMain, dialog, shell } from 'electron';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readFileSync, writeFileSync } from 'node:fs';
 
-import { loadBrainData } from './src/data.js';
+import { loadBrainData, availableFlyModels } from './src/data.js';
 import { createSpecimenService } from './src/specimen-service.js';
 import { circadianActivity, InputDisturbance } from './src/environment.js';
 import { createSaveService } from './src/save-io.js';
@@ -200,17 +201,33 @@ app.on('second-instance', () => {
   showWindow();
 });
 
-app.whenReady().then(() => {
-  if (!primaryInstance) return;
+// Which fly runs: 'mixed' (FlyWire brain + MaleCNS cord, the original model)
+// or 'male' (brain and cord of one MaleCNS animal). Kept in the settings
+// folder; a model whose files are missing falls back to 'mixed'.
+const flyModelFile = () => join(app.getPath('userData'), 'fly-model.json');
+function chosenFlyModel() {
   try {
-    brainData = loadBrainData();
+    const { model } = JSON.parse(readFileSync(flyModelFile(), 'utf8'));
+    return availableFlyModels().includes(model) ? model : 'mixed';
+  } catch { return 'mixed'; }
+}
+function loadFly(model) {
+  try {
+    brainData = loadBrainData(undefined, { model });
+    brainDataText = null;
     if (brainData) dataInfo = describeData(brainData);
   } catch (error) {
     brainData = null;
+    brainDataText = null;
     dataInfo = `invalid neural data: ${error.message}`;
     process.stderr.write(`[data] ${dataInfo}
 `);
   }
+}
+
+app.whenReady().then(() => {
+  if (!primaryInstance) return;
+  loadFly(chosenFlyModel());
 
   win = createWindow();
   // Closing the window hides it; the tray's Quit ends the app.
@@ -232,6 +249,17 @@ app.whenReady().then(() => {
 });
 
 ipcMain.handle('brain-data', () => brainData);
+ipcMain.handle('fly-models', () => ({ available: availableFlyModels(), current: brainData?.provenance?.flyModel ?? 'mixed' }));
+// Switching the fly reloads the page: a new brain means new workers, views
+// and populations. An unsaved recording still asks first (will-prevent-unload).
+ipcMain.handle('set-fly-model', (_event, model) => {
+  if (!availableFlyModels().includes(model)) return false;
+  if ((brainData?.provenance?.flyModel ?? 'mixed') === model) return true;
+  try { writeFileSync(flyModelFile(), JSON.stringify({ model })); } catch { /* the choice holds for this session */ }
+  loadFly(model);
+  if (win && !win.isDestroyed()) win.webContents.reload();
+  return true;
+});
 // The page and its two simulation workers each need the whole bundle. One
 // string crosses the process and thread boundaries almost for free, while
 // structured-cloning its ~800,000 small edge arrays took seconds per copy on
@@ -263,6 +291,8 @@ ipcMain.handle('open-external', (_e, url) => {
   } catch { return false; }
 });
 ipcMain.on('renderer-set-paused', (_e, value) => { paused = !!value; refreshTray(); });
+// The user declined the software terms: end the app, not only the window.
+ipcMain.on('quit-app', () => { app.isQuitting = true; app.quit(); });
 
 // Save a recorded run. The renderer hands over CSV text and nothing else —
 // it cannot name a path, so this channel can only ever write where the user

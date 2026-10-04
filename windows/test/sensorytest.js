@@ -13,6 +13,7 @@
 // the model previously got backwards by feeding wind into the hearing neurons.
 
 import './random.js';
+import { expectationsFor } from './fly-models.js';
 import { loadBrainData } from '../src/data.js';
 import { LIFSim } from '../src/sim.js';
 import { ClosedLoop } from '../src/closed-loop.js';
@@ -45,7 +46,8 @@ const sound = run({ sound: 1 });
 
 check('the sensory population splits into FlyWire\'s two JO populations', () => {
   const s = base.sim;
-  return [s.sensoryAnnotated && s.sensAuditory.length === 176 && s.sensWind.length === 18,
+  const { auditory, wind } = expectationsFor(data);
+  return [s.sensoryAnnotated && s.sensAuditory.length === auditory && s.sensWind.length === wind,
     `JO-A/B ${s.sensAuditory.length}, JO-C/D/E ${s.sensWind.length}, other ${s.sensOther.length}`];
 });
 

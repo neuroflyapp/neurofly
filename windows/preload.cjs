@@ -18,6 +18,8 @@ const on = (channel) => (fn) => {
 contextBridge.exposeInMainWorld('flyAPI', {
   getBrainData: () => ipcRenderer.invoke('brain-data'),
   getBrainDataText: () => ipcRenderer.invoke('brain-data-text'),
+  getFlyModels: () => ipcRenderer.invoke('fly-models'),
+  setFlyModel: (model) => ipcRenderer.invoke('set-fly-model', model),
   getSpecimenCatalog: () => ipcRenderer.invoke('specimen-catalog'),
   getSpecimenData: (id) => ipcRenderer.invoke('specimen-data', id),
   getSpecimenMorphology: (id, profileId) => ipcRenderer.invoke('specimen-morphology', id, profileId),
@@ -43,4 +45,7 @@ contextBridge.exposeInMainWorld('flyAPI', {
   // Opens a literature link in the default browser; main accepts only https
   // links to a fixed list of scientific hosts.
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  // "Decline" in the software terms dialog ends the whole app (closing the
+  // window would only hide it in the tray).
+  quitApp: () => ipcRenderer.send('quit-app'),
 });

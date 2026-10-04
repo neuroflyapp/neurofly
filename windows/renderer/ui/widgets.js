@@ -7,15 +7,17 @@ export function panelHead(eyebrow, title, text) {
   return h('div', { class: 'panel-head' }, h('div', { class: 'eyebrow' }, eyebrow), h('h1', {}, title), text ? h('p', {}, text) : null);
 }
 
-// tag kinds: measured (data), model (assumption), observer (view only), real (the real animal)
+// tag kinds: measured (data), simulation (computed/counted model output),
+// model (assumption), observer (view only), real (the real animal)
 export function tag(kind, label) {
   const titles = {
     measured: t('Measured: comes from the FlyWire / MaleCNS data or is counted in the running simulation.'),
     model: t('Model: a modelling choice, stated so it can be checked.'),
+    simulation: t('Simulation output: computed or counted in this model, not a measurement from a living fly.'),
     observer: t('View only: changes how you see the fly, never what she experiences.'),
     real: t('The real animal: published findings about living fruit flies.'),
   };
-  return h('span', { class: `tag ${kind}`, title: titles[kind] ?? '' }, label ?? t({ measured: 'measured', model: 'model', observer: 'view only', real: 'real fly' }[kind] ?? kind));
+  return h('span', { class: `tag ${kind}`, title: titles[kind] ?? '' }, label ?? t({ measured: 'measured', simulation: 'simulation output', model: 'model', observer: 'view only', real: 'real fly' }[kind] ?? kind));
 }
 
 export function card(title, { tagEl = null, iconName = null } = {}, ...children) {

@@ -33,7 +33,8 @@ import { LocomotorSim, DECODER_MODEL_KEYS } from '../src/locomotor.js';
 import { JOINT_AXES, LEG_NAMES } from '../src/rhythm.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DATA = path.resolve(HERE, '../../data');
+// Optional argument: a model folder under data/ (e.g. female) holding its own cord.
+const DATA = path.resolve(HERE, '../../data', process.argv[2] || '');
 const OUT = path.join(DATA, 'rhythm_decoder.json');
 const raw = fs.readFileSync(path.join(DATA, 'locomotor_circuit.json'), 'utf8');
 const circuit = JSON.parse(raw);

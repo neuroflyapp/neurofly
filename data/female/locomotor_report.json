@@ -1,0 +1,1185 @@
+{
+  "rawSegmentPairRows": 13620865,
+  "rawSegmentPairContacts": 42309621,
+  "annotationRows": 146623,
+  "neurotransmitterRows": 188508,
+  "candidateNeurons": 15998,
+  "candidateEdgesAtLeastFive": 360306,
+  "neurons": 1000,
+  "edges": 14622,
+  "contacts": 544708,
+  "roles": {
+    "motor": 254,
+    "premotor": 565,
+    "sensory": 148,
+    "ascending": 18,
+    "descending": 15
+  },
+  "neurotransmitters": {
+    "octopamine": 4,
+    "gaba": 419,
+    "acetylcholine": 439,
+    "glutamate": 129,
+    "unclear": 8,
+    "dopamine": 1
+  },
+  "zeroCurrentEdges": 1,
+  "zeroCurrentContacts": 6,
+  "descendingTypes": {
+    "DNa02": 2,
+    "DNa01": 2,
+    "DNp09": 2,
+    "MDN": 4,
+    "DNg11": 5
+  },
+  "motorCoverage": [
+    {
+      "leg": 0,
+      "label": "RF",
+      "motorChannel": "coxa_anterior_rotator",
+      "neurons": 2,
+      "reachableNeurons": 2,
+      "fullIncomingContacts": 15349,
+      "retainedIncomingContacts": 5898,
+      "incomingFraction": 0.38426
+    },
+    {
+      "leg": 0,
+      "label": "RF",
+      "motorChannel": "coxa_posterior_rotator",
+      "neurons": 4,
+      "reachableNeurons": 4,
+      "fullIncomingContacts": 12306,
+      "retainedIncomingContacts": 5220,
+      "incomingFraction": 0.424183
+    },
+    {
+      "leg": 0,
+      "label": "RF",
+      "motorChannel": "coxa_promotor",
+      "neurons": 4,
+      "reachableNeurons": 4,
+      "fullIncomingContacts": 13824,
+      "retainedIncomingContacts": 4013,
+      "incomingFraction": 0.290292
+    },
+    {
+      "leg": 0,
+      "label": "RF",
+      "motorChannel": "coxa_remotor",
+      "neurons": 2,
+      "reachableNeurons": 2,
+      "fullIncomingContacts": 12460,
+      "retainedIncomingContacts": 5085,
+      "incomingFraction": 0.408106
+    },
+    {
+      "leg": 0,
+      "label": "RF",
+      "motorChannel": "tibia_extensor",
+      "neurons": 2,
+      "reachableNeurons": 2,
+      "fullIncomingContacts": 14276,
+      "retainedIncomingContacts": 5241,
+      "incomingFraction": 0.36712
+    },
+    {
+      "leg": 0,
+      "label": "RF",
+      "motorChannel": "tibia_flexor",
+      "neurons": 16,
+      "reachableNeurons": 15,
+      "fullIncomingContacts": 25681,
+      "retainedIncomingContacts": 8236,
+      "incomingFraction": 0.320704
+    },
+    {
+      "leg": 0,
+      "label": "RF",
+      "motorChannel": "trochanter_extensor",
+      "neurons": 4,
+      "reachableNeurons": 4,
+      "fullIncomingContacts": 21541,
+      "retainedIncomingContacts": 6793,
+      "incomingFraction": 0.315352
+    },
+    {
+      "leg": 0,
+      "label": "RF",
+      "motorChannel": "trochanter_flexor",
+      "neurons": 11,
+      "reachableNeurons": 11,
+      "fullIncomingContacts": 26236,
+      "retainedIncomingContacts": 12238,
+      "incomingFraction": 0.466458
+    },
+    {
+      "leg": 1,
+      "label": "LF",
+      "motorChannel": "coxa_anterior_rotator",
+      "neurons": 2,
+      "reachableNeurons": 2,
+      "fullIncomingContacts": 14569,
+      "retainedIncomingContacts": 5650,
+      "incomingFraction": 0.38781
+    },
+    {
+      "leg": 1,
+      "label": "LF",
+      "motorChannel": "coxa_posterior_rotator",
+      "neurons": 4,
+      "reachableNeurons": 4,
+      "fullIncomingContacts": 12062,
+      "retainedIncomingContacts": 5218,
+      "incomingFraction": 0.432598
+    },
+    {
+      "leg": 1,
+      "label": "LF",
+      "motorChannel": "coxa_promotor",
+      "neurons": 4,
+      "reachableNeurons": 4,
+      "fullIncomingContacts": 16829,
+      "retainedIncomingContacts": 4786,
+      "incomingFraction": 0.28439
+    },
+    {
+      "leg": 1,
+      "label": "LF",
+      "motorChannel": "coxa_remotor",
+      "neurons": 2,
+      "reachableNeurons": 2,
+      "fullIncomingContacts": 8852,
+      "retainedIncomingContacts": 3959,
+      "incomingFraction": 0.447244
+    },
+    {
+      "leg": 1,
+      "label": "LF",
+      "motorChannel": "tibia_extensor",
+      "neurons": 2,
+      "reachableNeurons": 2,
+      "fullIncomingContacts": 3640,
+      "retainedIncomingContacts": 1414,
+      "incomingFraction": 0.388462
+    },
+    {
+      "leg": 1,
+      "label": "LF",
+      "motorChannel": "tibia_flexor",
+      "neurons": 17,
+      "reachableNeurons": 17,
+      "fullIncomingContacts": 13303,
+      "retainedIncomingContacts": 4281,
+      "incomingFraction": 0.321807
+    },
+    {
+      "leg": 1,
+      "label": "LF",
+      "motorChannel": "trochanter_extensor",
+      "neurons": 4,
+      "reachableNeurons": 4,
+      "fullIncomingContacts": 20892,
+      "retainedIncomingContacts": 6018,
+      "incomingFraction": 0.288053
+    },
+    {
+      "leg": 1,
+      "label": "LF",
+      "motorChannel": "trochanter_flexor",
+      "neurons": 11,
+      "reachableNeurons": 11,
+      "fullIncomingContacts": 23021,
+      "retainedIncomingContacts": 12120,
+      "incomingFraction": 0.526476
+    },
+    {
+      "leg": 2,
+      "label": "RM",
+      "motorChannel": "coxa_anterior_rotator",
+      "neurons": 2,
+      "reachableNeurons": 2,
+      "fullIncomingContacts": 12341,
+      "retainedIncomingContacts": 4742,
+      "incomingFraction": 0.384248
+    },
+    {
+      "leg": 2,
+      "label": "RM",
+      "motorChannel": "coxa_posterior_rotator",
+      "neurons": 4,
+      "reachableNeurons": 4,
+      "fullIncomingContacts": 18863,
+      "retainedIncomingContacts": 7741,
+      "incomingFraction": 0.41038
+    },
+    {
+      "leg": 2,
+      "label": "RM",
+      "motorChannel": "tibia_extensor",
+      "neurons": 2,
+      "reachableNeurons": 2,
+      "fullIncomingContacts": 14510,
+      "retainedIncomingContacts": 5264,
+      "incomingFraction": 0.362784
+    },
+    {
+      "leg": 2,
+      "label": "RM",
+      "motorChannel": "tibia_flexor",
+      "neurons": 17,
+      "reachableNeurons": 17,
+      "fullIncomingContacts": 53423,
+      "retainedIncomingContacts": 15464,
+      "incomingFraction": 0.289463
+    },
+    {
+      "leg": 2,
+      "label": "RM",
+      "motorChannel": "trochanter_extensor",
+      "neurons": 5,
+      "reachableNeurons": 5,
+      "fullIncomingContacts": 23462,
+      "retainedIncomingContacts": 8086,
+      "incomingFraction": 0.344642
+    },
+    {
+      "leg": 2,
+      "label": "RM",
+      "motorChannel": "trochanter_flexor",
+      "neurons": 10,
+      "reachableNeurons": 10,
+      "fullIncomingContacts": 27868,
+      "retainedIncomingContacts": 12431,
+      "incomingFraction": 0.446067
+    },
+    {
+      "leg": 3,
+      "label": "LM",
+      "motorChannel": "coxa_anterior_rotator",
+      "neurons": 2,
+      "reachableNeurons": 2,
+      "fullIncomingContacts": 14388,
+      "retainedIncomingContacts": 5713,
+      "incomingFraction": 0.397067
+    },
+    {
+      "leg": 3,
+      "label": "LM",
+      "motorChannel": "coxa_posterior_rotator",
+      "neurons": 4,
+      "reachableNeurons": 4,
+      "fullIncomingContacts": 19716,
+      "retainedIncomingContacts": 8626,
+      "incomingFraction": 0.437513
+    },
+    {
+      "leg": 3,
+      "label": "LM",
+      "motorChannel": "coxa_remotor",
+      "neurons": 1,
+      "reachableNeurons": 1,
+      "fullIncomingContacts": 1556,
+      "retainedIncomingContacts": 945,
+      "incomingFraction": 0.607326
+    },
+    {
+      "leg": 3,
+      "label": "LM",
+      "motorChannel": "tibia_extensor",
+      "neurons": 2,
+      "reachableNeurons": 2,
+      "fullIncomingContacts": 12090,
+      "retainedIncomingContacts": 4925,
+      "incomingFraction": 0.407361
+    },
+    {
+      "leg": 3,
+      "label": "LM",
+      "motorChannel": "tibia_flexor",
+      "neurons": 16,
+      "reachableNeurons": 16,
+      "fullIncomingContacts": 31566,
+      "retainedIncomingContacts": 10571,
+      "incomingFraction": 0.334886
+    },
+    {
+      "leg": 3,
+      "label": "LM",
+      "motorChannel": "trochanter_extensor",
+      "neurons": 5,
+      "reachableNeurons": 5,
+      "fullIncomingContacts": 24223,
+      "retainedIncomingContacts": 7669,
+      "incomingFraction": 0.3166
+    },
+    {
+      "leg": 3,
+      "label": "LM",
+      "motorChannel": "trochanter_flexor",
+      "neurons": 10,
+      "reachableNeurons": 10,
+      "fullIncomingContacts": 20128,
+      "retainedIncomingContacts": 9859,
+      "incomingFraction": 0.489815
+    },
+    {
+      "leg": 4,
+      "label": "RH",
+      "motorChannel": "coxa_anterior_rotator",
+      "neurons": 2,
+      "reachableNeurons": 2,
+      "fullIncomingContacts": 3928,
+      "retainedIncomingContacts": 1694,
+      "incomingFraction": 0.431263
+    },
+    {
+      "leg": 4,
+      "label": "RH",
+      "motorChannel": "coxa_posterior_rotator",
+      "neurons": 4,
+      "reachableNeurons": 4,
+      "fullIncomingContacts": 12438,
+      "retainedIncomingContacts": 4918,
+      "incomingFraction": 0.395401
+    },
+    {
+      "leg": 4,
+      "label": "RH",
+      "motorChannel": "coxa_remotor",
+      "neurons": 1,
+      "reachableNeurons": 1,
+      "fullIncomingContacts": 871,
+      "retainedIncomingContacts": 381,
+      "incomingFraction": 0.437428
+    },
+    {
+      "leg": 4,
+      "label": "RH",
+      "motorChannel": "tibia_extensor",
+      "neurons": 2,
+      "reachableNeurons": 2,
+      "fullIncomingContacts": 17326,
+      "retainedIncomingContacts": 5723,
+      "incomingFraction": 0.330313
+    },
+    {
+      "leg": 4,
+      "label": "RH",
+      "motorChannel": "tibia_flexor",
+      "neurons": 18,
+      "reachableNeurons": 18,
+      "fullIncomingContacts": 56390,
+      "retainedIncomingContacts": 17508,
+      "incomingFraction": 0.310481
+    },
+    {
+      "leg": 4,
+      "label": "RH",
+      "motorChannel": "trochanter_extensor",
+      "neurons": 5,
+      "reachableNeurons": 5,
+      "fullIncomingContacts": 24614,
+      "retainedIncomingContacts": 7286,
+      "incomingFraction": 0.29601
+    },
+    {
+      "leg": 4,
+      "label": "RH",
+      "motorChannel": "trochanter_flexor",
+      "neurons": 10,
+      "reachableNeurons": 10,
+      "fullIncomingContacts": 23982,
+      "retainedIncomingContacts": 10608,
+      "incomingFraction": 0.442332
+    },
+    {
+      "leg": 5,
+      "label": "LH",
+      "motorChannel": "coxa_anterior_rotator",
+      "neurons": 2,
+      "reachableNeurons": 2,
+      "fullIncomingContacts": 7239,
+      "retainedIncomingContacts": 2828,
+      "incomingFraction": 0.390662
+    },
+    {
+      "leg": 5,
+      "label": "LH",
+      "motorChannel": "coxa_posterior_rotator",
+      "neurons": 4,
+      "reachableNeurons": 4,
+      "fullIncomingContacts": 13493,
+      "retainedIncomingContacts": 5738,
+      "incomingFraction": 0.425258
+    },
+    {
+      "leg": 5,
+      "label": "LH",
+      "motorChannel": "coxa_remotor",
+      "neurons": 1,
+      "reachableNeurons": 1,
+      "fullIncomingContacts": 872,
+      "retainedIncomingContacts": 422,
+      "incomingFraction": 0.483945
+    },
+    {
+      "leg": 5,
+      "label": "LH",
+      "motorChannel": "tibia_extensor",
+      "neurons": 2,
+      "reachableNeurons": 2,
+      "fullIncomingContacts": 18653,
+      "retainedIncomingContacts": 6436,
+      "incomingFraction": 0.345038
+    },
+    {
+      "leg": 5,
+      "label": "LH",
+      "motorChannel": "tibia_flexor",
+      "neurons": 17,
+      "reachableNeurons": 17,
+      "fullIncomingContacts": 59528,
+      "retainedIncomingContacts": 17417,
+      "incomingFraction": 0.292585
+    },
+    {
+      "leg": 5,
+      "label": "LH",
+      "motorChannel": "trochanter_extensor",
+      "neurons": 5,
+      "reachableNeurons": 5,
+      "fullIncomingContacts": 23609,
+      "retainedIncomingContacts": 7238,
+      "incomingFraction": 0.306578
+    },
+    {
+      "leg": 5,
+      "label": "LH",
+      "motorChannel": "trochanter_flexor",
+      "neurons": 10,
+      "reachableNeurons": 10,
+      "fullIncomingContacts": 26571,
+      "retainedIncomingContacts": 11435,
+      "incomingFraction": 0.430356
+    }
+  ],
+  "descendingToMotorPaths": [
+    {
+      "leg": 0,
+      "label": "RF",
+      "motorChannel": "coxa_anterior_rotator",
+      "motorBodyId": "720575941531180261",
+      "path": [
+        [
+          "720575941456897005",
+          "720575941531180261",
+          35
+        ]
+      ]
+    },
+    {
+      "leg": 0,
+      "label": "RF",
+      "motorChannel": "coxa_posterior_rotator",
+      "motorBodyId": "720575941595712448",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941595712448",
+          8
+        ]
+      ]
+    },
+    {
+      "leg": 0,
+      "label": "RF",
+      "motorChannel": "coxa_promotor",
+      "motorBodyId": "720575941428654255",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941563172776",
+          20
+        ],
+        [
+          "720575941563172776",
+          "720575941428654255",
+          49
+        ]
+      ]
+    },
+    {
+      "leg": 0,
+      "label": "RF",
+      "motorChannel": "coxa_remotor",
+      "motorBodyId": "720575941593715569",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941496314697",
+          68
+        ],
+        [
+          "720575941496314697",
+          "720575941593715569",
+          375
+        ]
+      ]
+    },
+    {
+      "leg": 0,
+      "label": "RF",
+      "motorChannel": "tibia_extensor",
+      "motorBodyId": "720575941488287797",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941563172776",
+          20
+        ],
+        [
+          "720575941563172776",
+          "720575941488287797",
+          714
+        ]
+      ]
+    },
+    {
+      "leg": 0,
+      "label": "RF",
+      "motorChannel": "tibia_flexor",
+      "motorBodyId": "720575941559281679",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941559281679",
+          5
+        ]
+      ]
+    },
+    {
+      "leg": 0,
+      "label": "RF",
+      "motorChannel": "trochanter_extensor",
+      "motorBodyId": "720575941411709073",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941501229143",
+          5
+        ],
+        [
+          "720575941501229143",
+          "720575941411709073",
+          129
+        ]
+      ]
+    },
+    {
+      "leg": 0,
+      "label": "RF",
+      "motorChannel": "trochanter_flexor",
+      "motorBodyId": "720575941399414563",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941520199340",
+          45
+        ],
+        [
+          "720575941520199340",
+          "720575941399414563",
+          24
+        ]
+      ]
+    },
+    {
+      "leg": 1,
+      "label": "LF",
+      "motorChannel": "coxa_anterior_rotator",
+      "motorBodyId": "720575941455787245",
+      "path": [
+        [
+          "720575941510475536",
+          "720575941455787245",
+          20
+        ]
+      ]
+    },
+    {
+      "leg": 1,
+      "label": "LF",
+      "motorChannel": "coxa_posterior_rotator",
+      "motorBodyId": "720575941549009663",
+      "path": [
+        [
+          "720575941510475536",
+          "720575941549009663",
+          17
+        ]
+      ]
+    },
+    {
+      "leg": 1,
+      "label": "LF",
+      "motorChannel": "coxa_promotor",
+      "motorBodyId": "720575941498960546",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941459028639",
+          8
+        ],
+        [
+          "720575941459028639",
+          "720575941498960546",
+          9
+        ]
+      ]
+    },
+    {
+      "leg": 1,
+      "label": "LF",
+      "motorChannel": "coxa_remotor",
+      "motorBodyId": "720575941494164864",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941512475971",
+          115
+        ],
+        [
+          "720575941512475971",
+          "720575941494164864",
+          6
+        ]
+      ]
+    },
+    {
+      "leg": 1,
+      "label": "LF",
+      "motorChannel": "tibia_extensor",
+      "motorBodyId": "720575941478577231",
+      "path": [
+        [
+          "720575941535862506",
+          "720575941542796549",
+          16
+        ],
+        [
+          "720575941542796549",
+          "720575941478577231",
+          100
+        ]
+      ]
+    },
+    {
+      "leg": 1,
+      "label": "LF",
+      "motorChannel": "tibia_flexor",
+      "motorBodyId": "720575941406488494",
+      "path": [
+        [
+          "720575941499708745",
+          "720575941438455340",
+          23
+        ],
+        [
+          "720575941438455340",
+          "720575941406488494",
+          15
+        ]
+      ]
+    },
+    {
+      "leg": 1,
+      "label": "LF",
+      "motorChannel": "trochanter_extensor",
+      "motorBodyId": "720575941483515389",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941459028639",
+          8
+        ],
+        [
+          "720575941459028639",
+          "720575941483515389",
+          37
+        ]
+      ]
+    },
+    {
+      "leg": 1,
+      "label": "LF",
+      "motorChannel": "trochanter_flexor",
+      "motorBodyId": "720575941511883985",
+      "path": [
+        [
+          "720575941535862506",
+          "720575941429526743",
+          5
+        ],
+        [
+          "720575941429526743",
+          "720575941511883985",
+          5
+        ]
+      ]
+    },
+    {
+      "leg": 2,
+      "label": "RM",
+      "motorChannel": "coxa_anterior_rotator",
+      "motorBodyId": "720575941480138976",
+      "path": [
+        [
+          "720575941456897005",
+          "720575941480138976",
+          25
+        ]
+      ]
+    },
+    {
+      "leg": 2,
+      "label": "RM",
+      "motorChannel": "coxa_posterior_rotator",
+      "motorBodyId": "720575941536577880",
+      "path": [
+        [
+          "720575941456897005",
+          "720575941536577880",
+          7
+        ]
+      ]
+    },
+    {
+      "leg": 2,
+      "label": "RM",
+      "motorChannel": "tibia_extensor",
+      "motorBodyId": "720575941432965902",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941612410442",
+          40
+        ],
+        [
+          "720575941612410442",
+          "720575941432965902",
+          543
+        ]
+      ]
+    },
+    {
+      "leg": 2,
+      "label": "RM",
+      "motorChannel": "tibia_flexor",
+      "motorBodyId": "720575941505891422",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941505891422",
+          7
+        ]
+      ]
+    },
+    {
+      "leg": 2,
+      "label": "RM",
+      "motorChannel": "trochanter_extensor",
+      "motorBodyId": "720575941470082423",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941611153510",
+          122
+        ],
+        [
+          "720575941611153510",
+          "720575941470082423",
+          11
+        ]
+      ]
+    },
+    {
+      "leg": 2,
+      "label": "RM",
+      "motorChannel": "trochanter_flexor",
+      "motorBodyId": "720575941350444592",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941611153510",
+          122
+        ],
+        [
+          "720575941611153510",
+          "720575941350444592",
+          12
+        ]
+      ]
+    },
+    {
+      "leg": 3,
+      "label": "LM",
+      "motorChannel": "coxa_anterior_rotator",
+      "motorBodyId": "720575941519664856",
+      "path": [
+        [
+          "720575941510475536",
+          "720575941519664856",
+          91
+        ]
+      ]
+    },
+    {
+      "leg": 3,
+      "label": "LM",
+      "motorChannel": "coxa_posterior_rotator",
+      "motorBodyId": "720575941556144100",
+      "path": [
+        [
+          "720575941510475536",
+          "720575941556144100",
+          20
+        ]
+      ]
+    },
+    {
+      "leg": 3,
+      "label": "LM",
+      "motorChannel": "coxa_remotor",
+      "motorBodyId": "720575941553503460",
+      "path": [
+        [
+          "720575941499708745",
+          "720575941461018950",
+          10
+        ],
+        [
+          "720575941461018950",
+          "720575941553503460",
+          32
+        ]
+      ]
+    },
+    {
+      "leg": 3,
+      "label": "LM",
+      "motorChannel": "tibia_extensor",
+      "motorBodyId": "720575941468687581",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941526834598",
+          27
+        ],
+        [
+          "720575941526834598",
+          "720575941468687581",
+          10
+        ]
+      ]
+    },
+    {
+      "leg": 3,
+      "label": "LM",
+      "motorChannel": "tibia_flexor",
+      "motorBodyId": "720575941497881417",
+      "path": [
+        [
+          "720575941535862506",
+          "720575941497881417",
+          20
+        ]
+      ]
+    },
+    {
+      "leg": 3,
+      "label": "LM",
+      "motorChannel": "trochanter_extensor",
+      "motorBodyId": "720575941442381738",
+      "path": [
+        [
+          "720575941510475536",
+          "720575941652640273",
+          18
+        ],
+        [
+          "720575941652640273",
+          "720575941442381738",
+          25
+        ]
+      ]
+    },
+    {
+      "leg": 3,
+      "label": "LM",
+      "motorChannel": "trochanter_flexor",
+      "motorBodyId": "720575941471300960",
+      "path": [
+        [
+          "720575941510475536",
+          "720575941554562714",
+          7
+        ],
+        [
+          "720575941554562714",
+          "720575941471300960",
+          14
+        ]
+      ]
+    },
+    {
+      "leg": 4,
+      "label": "RH",
+      "motorChannel": "coxa_anterior_rotator",
+      "motorBodyId": "720575941438181205",
+      "path": [
+        [
+          "720575941456897005",
+          "720575941438181205",
+          13
+        ]
+      ]
+    },
+    {
+      "leg": 4,
+      "label": "RH",
+      "motorChannel": "coxa_posterior_rotator",
+      "motorBodyId": "720575941481621501",
+      "path": [
+        [
+          "720575941456897005",
+          "720575941586409540",
+          6
+        ],
+        [
+          "720575941586409540",
+          "720575941481621501",
+          63
+        ]
+      ]
+    },
+    {
+      "leg": 4,
+      "label": "RH",
+      "motorChannel": "coxa_remotor",
+      "motorBodyId": "720575941562065920",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941351164464",
+          39
+        ],
+        [
+          "720575941351164464",
+          "720575941562065920",
+          9
+        ]
+      ]
+    },
+    {
+      "leg": 4,
+      "label": "RH",
+      "motorChannel": "tibia_extensor",
+      "motorBodyId": "720575941470212471",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941596126166",
+          25
+        ],
+        [
+          "720575941596126166",
+          "720575941470212471",
+          584
+        ]
+      ]
+    },
+    {
+      "leg": 4,
+      "label": "RH",
+      "motorChannel": "tibia_flexor",
+      "motorBodyId": "720575941410034859",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941410034859",
+          8
+        ]
+      ]
+    },
+    {
+      "leg": 4,
+      "label": "RH",
+      "motorChannel": "trochanter_extensor",
+      "motorBodyId": "720575941488644300",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941565362578",
+          35
+        ],
+        [
+          "720575941565362578",
+          "720575941488644300",
+          33
+        ]
+      ]
+    },
+    {
+      "leg": 4,
+      "label": "RH",
+      "motorChannel": "trochanter_flexor",
+      "motorBodyId": "720575941445324564",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941351164464",
+          39
+        ],
+        [
+          "720575941351164464",
+          "720575941445324564",
+          8
+        ]
+      ]
+    },
+    {
+      "leg": 5,
+      "label": "LH",
+      "motorChannel": "coxa_anterior_rotator",
+      "motorBodyId": "720575941494740094",
+      "path": [
+        [
+          "720575941510475536",
+          "720575941494740094",
+          24
+        ]
+      ]
+    },
+    {
+      "leg": 5,
+      "label": "LH",
+      "motorChannel": "coxa_posterior_rotator",
+      "motorBodyId": "720575941618260607",
+      "path": [
+        [
+          "720575941510475536",
+          "720575941618260607",
+          8
+        ]
+      ]
+    },
+    {
+      "leg": 5,
+      "label": "LH",
+      "motorChannel": "coxa_remotor",
+      "motorBodyId": "720575941537495489",
+      "path": [
+        [
+          "720575941499708745",
+          "720575941564426752",
+          15
+        ],
+        [
+          "720575941564426752",
+          "720575941537495489",
+          11
+        ]
+      ]
+    },
+    {
+      "leg": 5,
+      "label": "LH",
+      "motorChannel": "tibia_extensor",
+      "motorBodyId": "720575941471839296",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941669856689",
+          5
+        ],
+        [
+          "720575941669856689",
+          "720575941471839296",
+          27
+        ]
+      ]
+    },
+    {
+      "leg": 5,
+      "label": "LH",
+      "motorChannel": "tibia_flexor",
+      "motorBodyId": "720575941431160824",
+      "path": [
+        [
+          "720575941535862506",
+          "720575941431160824",
+          10
+        ]
+      ]
+    },
+    {
+      "leg": 5,
+      "label": "LH",
+      "motorChannel": "trochanter_extensor",
+      "motorBodyId": "720575941458992031",
+      "path": [
+        [
+          "720575941432123640",
+          "720575941669856689",
+          5
+        ],
+        [
+          "720575941669856689",
+          "720575941458992031",
+          7
+        ]
+      ]
+    },
+    {
+      "leg": 5,
+      "label": "LH",
+      "motorChannel": "trochanter_flexor",
+      "motorBodyId": "720575941632311739",
+      "path": [
+        [
+          "720575941510475536",
+          "720575941632311739",
+          6
+        ]
+      ]
+    }
+  ],
+  "selectedSensoryByLegAndKind": {
+    "RF:chordotonal": 10,
+    "RF:campaniform": 10,
+    "RF:hair_plate": 10,
+    "RF:proprioceptive_unspecified": 0,
+    "LF:chordotonal": 10,
+    "LF:campaniform": 10,
+    "LF:hair_plate": 10,
+    "LF:proprioceptive_unspecified": 0,
+    "RM:chordotonal": 10,
+    "RM:campaniform": 2,
+    "RM:hair_plate": 10,
+    "RM:proprioceptive_unspecified": 0,
+    "LM:chordotonal": 10,
+    "LM:campaniform": 2,
+    "LM:hair_plate": 10,
+    "LM:proprioceptive_unspecified": 0,
+    "RH:chordotonal": 10,
+    "RH:campaniform": 2,
+    "RH:hair_plate": 10,
+    "RH:proprioceptive_unspecified": 0,
+    "LH:chordotonal": 10,
+    "LH:campaniform": 2,
+    "LH:hair_plate": 10,
+    "LH:proprioceptive_unspecified": 0
+  },
+  "ascendingReturnEdges": 43
+}

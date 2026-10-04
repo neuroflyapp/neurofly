@@ -12,6 +12,7 @@
 
 import './random.js';
 import { loadBrainData } from '../src/data.js';
+import { expectationsFor } from './fly-models.js';
 import { LIFSim, EXT } from '../src/sim.js';
 import { ClosedLoop, dustDrive } from '../src/closed-loop.js';
 import { explain, InputHistory } from '../src/causal.js';
@@ -42,7 +43,7 @@ function dustResponse(seed, drive) {
 
 check('the sensory extension is attached with both pathways', () => {
   const s = make(7);
-  return [data.provenance.sensoryExtensionStatus === 'attached' && s.hasTaste && s.hasGroomingPathway,
+  return [data.provenance.sensoryExtensionStatus === expectationsFor(data).senses && s.hasTaste && s.hasGroomingPathway,
     `status ${data.provenance.sensoryExtensionStatus}, taste ${s.hasTaste}, grooming ${s.hasGroomingPathway}`];
 });
 
@@ -187,7 +188,7 @@ check('an input with no traced path to the deciding neurons is reported as concu
     + `leg grooming trigger ${legs.trigger?.channel ?? 'none'}`];
 });
 
-check('an abrupt loom is named as the trigger of the takeoff it causes', () => {
+check('an abrupt loom is named as the trigger of the takeoff it causes, and as the stimulus it was', () => {
   rig.resetTrial(51);
   rig.run(0.4);
   if (rig.fly.state === 'flying') rig.fly.land();
@@ -198,11 +199,13 @@ check('an abrupt loom is named as the trigger of the takeoff it causes', () => {
   });
   rig.override = null;
   // Both eyes loomed and both feed the giant fiber: one is the trigger, the
-  // other a traced co-cause — never an untraced bystander.
+  // other a traced co-cause — never an untraced bystander. The source is the
+  // controlled stimulus, not the cursor or an object in the terrarium (a
+  // panel loom used to be explained as "your cursor" or "a firefly").
   const eyes = ['loomL', 'loomR'];
-  const ok = !!event && eyes.includes(event.trigger?.channel)
+  const ok = !!event && eyes.includes(event.trigger?.channel) && event.trigger?.source === 'stimulus'
     && event.contributing.some((c) => eyes.includes(c.channel)) && !event.concurrent.some((c) => eyes.includes(c.channel));
-  return [ok, event ? `trigger ${event.trigger?.channel ?? 'none'} after ${event.trigger?.latencyMs ?? '?'} ms, together with `
+  return [ok, event ? `trigger ${event.trigger?.channel ?? 'none'} (${event.trigger?.source || 'no source'}) after ${event.trigger?.latencyMs ?? '?'} ms, together with `
     + `${event.contributing.map((c) => c.channel).join(',') || 'nothing'}, GF spikes ${event.command?.spikes}` : 'no takeoff within 0.4 s'];
 });
 

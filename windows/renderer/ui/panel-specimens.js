@@ -308,10 +308,41 @@ export const specimensPanel = {
       pathTo, h('button', { type: 'button', class: 'btn small', onclick: () => { if (bundle && selected >= 0) pathTo.value = bundle.neurons[selected].id; } }, l('Auswahl als Ziel', 'Selection as target')),
       h('div', { class: 'row', style: { flexWrap: 'wrap', margin: '10px 0' } }, h('label', {}, l('Kontakte ≥ ', 'Contacts ≥ '), pathMin), h('label', {}, l('Schritte ≤ ', 'Hops ≤ '), pathHops)),
       pathButton, pathResult, pathExport);
+    // Which fly runs in the terrarium: the original mixed model, or brain and
+    // nerve cord of one male animal (data/male, etl_malecns_brain.py).
+    function runningFlyCard() {
+      const current = ctx.data?.provenance?.flyModel || 'mixed';
+      const options = [
+        { id: 'mixed', title: l('♀ Gehirn + ♂ Nervenstrang', '♀ brain + ♂ nerve cord'),
+          text: l('FlyWire-FAFB-Gehirn (Weibchen) und MaleCNS-Nervenstrang (Männchen), über eine modellierte Schnittstelle gekoppelt. Mit allen Sinnen: Wärme, Geschmack, Staub auf den Antennen.',
+            'FlyWire FAFB brain (female) and MaleCNS nerve cord (male), joined by a modelled interface. With every sense: heat, taste, dust on the antennae.') },
+        { id: 'male', title: l('♂ Ein Männchen, ein Tier', '♂ One male, one animal'),
+          text: l('Gehirn und Nervenstrang desselben MaleCNS-Tiers. Die 16 absteigenden und 34 aufsteigenden Zellen, die beide teilen, geben ihre Spikes Zelle für Zelle weiter. Mit seinen eigenen Wärme-, Geschmacks- und Putzbahnen.',
+            'Brain and nerve cord of the same MaleCNS animal. The 16 descending and 34 ascending cells both share pass their spikes on cell by cell. With his own heat, taste and grooming pathways.') },
+        { id: 'female', title: l('♀ Ein Weibchen, ein Tier', '♀ One female, one animal'),
+          text: l('Gehirn und Nervenstrang desselben BANC-Tiers. Die 15 absteigenden und 18 aufsteigenden Zellen, die beide teilen, geben ihre Spikes Zelle für Zelle weiter. Mit ihren eigenen Wärme-, Geschmacks- und Putzbahnen.',
+            'Brain and nerve cord of the same BANC animal. The 15 descending and 18 ascending cells both share pass their spikes on cell by cell. With her own heat, taste and grooming pathways.') },
+      ];
+      const note = h('p', { class: 'note', role: 'status' });
+      const buttons = h('div', { class: 'fly-models' });
+      const render = (available) => buttons.replaceChildren(...options.map((o) => {
+        const ready = available.includes(o.id), on = o.id === current;
+        return h('button', { type: 'button', class: `fly-model${on ? ' on' : ''}`, 'aria-pressed': String(on), 'data-fly-model': o.id, disabled: !ready || on,
+          onclick: async () => {
+            note.textContent = l('Die Simulation startet mit der gewählten Fliege neu…', 'Restarting the simulation with the chosen fly…');
+            const ok = await ctx.api.setFlyModel?.(o.id);
+            if (!ok) note.textContent = l('Dieses Modell ist nicht installiert.', 'This model is not installed.');
+          } }, h('b', {}, o.title), h('span', {}, o.text), on ? h('em', {}, l('läuft', 'running')) : null);
+      }));
+      render([current]);
+      ctx.api.getFlyModels?.().then((m) => { if (!disposed) render(m.available); }).catch(() => {});
+      return card(l('Laufende Fliege', 'Running fly'), {}, buttons,
+        h('p', { class: 'note' }, l('Jedes Modell: Verdrahtung gemessen, Dynamik, Sinne und Körper modelliert. Die Anatomie unten ist davon unabhängig.',
+          'Every model: wiring measured; dynamics, senses and body modelled. The anatomy below is independent of this choice.')), note);
+    }
     const el = h('div', { class: 'specimen-panel' }, panelHead(l('Tiere & Daten', 'Specimens & data'), l('Zwei Geschlechter. Getrennte Quellen.', 'Two sexes. Separate sources.'),
       l('♀ BANC und ♂ MaleCNS besitzen jeweils Gehirn und Nervenstrang desselben Tiers. Die männliche Optiklappe ist eine überlappende Version desselben MaleCNS-Präparats. MANC, FAFB und Hemibrain sind unabhängige erwachsene Tiere; L1EM ist eine Larve.', 'Female BANC and male MaleCNS each contain brain and nerve cord from one specimen. The male optic lobe is an overlapping release of the same MaleCNS specimen. MANC, FAFB and Hemibrain are separate adults; L1EM is a larva.')),
-      card(l('Was diese Auswahl ändert', 'What this selection changes'), {}, h('p', { class: 'note' },
-        l('Hier wählst du die echte Anatomiequelle für Untersuchung und Vergleich. Die laufende Fliege verwendet weiterhin FAFB ♀ + MaleCNS ♂ mit modellierter Kopplung. Die Umschaltung des laufenden Modells ist noch nicht freigegeben: Körperschnittstellen und Verhalten müssen zuerst pro Tier geprüft werden.', 'Choose the real anatomical source for inspection and comparison here. The running fly still uses FAFB ♀ + MaleCNS ♂ with a modelled interface. Switching the live model is not yet enabled: body interfaces and behaviour require specimen-specific validation.'))),
+      runningFlyCard(),
       choices, status, content, card(l('Forschungsbestand & Lücken', 'Research coverage & gaps'), {}, refreshArchive, research), card(l('Import-Checkliste', 'Import checklist'), {}, inventory));
     content.append(card(l('Datenbestand', 'Dataset'), {}, summary), card(l('Anatomie untersuchen', 'Inspect anatomy'), {}, projectionSelect, canvas,
       h('p', { class: 'note' }, l('Blau: Eingänge · Grün: Ausgänge · jeweils höchstens 30 gezeichnet. Keine Aktivitätsanzeige. Positionen sind Referenzpunkte, nicht durchgehend Zellkörper.', 'Blue: inputs · green: outputs · up to 30 drawn each. Not an activity display. Positions are reference points, not uniformly somata.')), query, results),

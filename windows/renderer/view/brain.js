@@ -437,6 +437,12 @@ export class BrainView {
     this.fearTarget = clampf(rates.gf / 8 + rates.loom / 140, 0, 1);
   }
 
+  // Compiles and draws once behind the boot screen (see TerrariumView.warmUp).
+  async warmUp() {
+    await this.renderer.compileAsync(this.scene, this.camera);
+    this.renderer.render(this.scene, this.camera);
+  }
+
   frame(tMs) {
     const t0 = tMs / 1000;
     if (this.last === null) { this.last = t0; return; }
@@ -523,7 +529,27 @@ export class BrainView {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h);
+    this._applyViewOffset();
     if (!this.userZoomed) this.zoom = this._fitDistance();
+  }
+
+  // A sheet covering the bottom or right edge (phones): the brain is drawn
+  // centred in the uncovered part.
+  setViewInset(bottom = 0, right = 0) {
+    this.viewInset = { bottom, right };
+    this._applyViewOffset();
+  }
+  _applyViewOffset() {
+    const { bottom = 0, right = 0 } = this.viewInset ?? {};
+    if (!this.width || !this.height) return;
+    if (bottom > 0.5 || right > 0.5) this.camera.setViewOffset(this.width, this.height, right / 2, bottom / 2, this.width, this.height);
+    else if (this.camera.view?.enabled) this.camera.clearViewOffset();
+  }
+
+  // The current view as a PNG data URL (snapshots outside Electron).
+  capturePNG() {
+    this.renderer.render(this.scene, this.camera);
+    return this.renderer.domElement.toDataURL('image/png');
   }
 
   // The film renderers (motion.js, reels.js) set their own fixed resolution;
@@ -538,9 +564,26 @@ export class BrainView {
   _bind() {
     const c = this.renderer.domElement;
     let dx0 = 0, dy0 = 0, moved = 0;
-    c.addEventListener('pointerdown', (e) => { this.dragging = true; moved = 0; dx0 = e.clientX; dy0 = e.clientY; this.idle = 0; this.hovering = true; c.setPointerCapture(e.pointerId); });
+    // Two fingers pinch to zoom (touch screens); one finger turns and taps.
+    const touches = new Map();
+    let pinch = 0;
+    const spread = () => { const [a, b] = [...touches.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+    c.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch') {
+        touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (touches.size >= 2) { pinch = spread(); this.dragging = false; moved = 99; return; }
+      }
+      this.dragging = true; moved = 0; dx0 = e.clientX; dy0 = e.clientY; this.idle = 0; this.hovering = true; c.setPointerCapture(e.pointerId);
+    });
     c.addEventListener('pointermove', (e) => {
       this.hovering = true; this.idle = 0;
+      if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (touches.size >= 2) {
+        const d = spread();
+        if (pinch > 0 && d > 0) { this.userZoomed = true; this.zoom = clampf(this.zoom * pinch / d, 3, 70); }
+        pinch = d;
+        return;
+      }
       if (!this.dragging) return;
       const dx = e.clientX - dx0, dy = e.clientY - dy0;
       dx0 = e.clientX; dy0 = e.clientY;
@@ -548,7 +591,10 @@ export class BrainView {
       this.group.rotation.y += dx * 0.008;
       this.group.rotation.x = clampf(this.group.rotation.x + dy * 0.008, -1.2, 1.2);
     });
+    const lift = (e) => { touches.delete(e.pointerId); if (touches.size < 2) pinch = 0; };
+    c.addEventListener('pointercancel', (e) => { lift(e); this.dragging = false; });
     c.addEventListener('pointerup', (e) => {
+      lift(e);
       if (this.dragging && moved < 5) this._pick(e);
       this.dragging = false; this.idle = 0;
       if (c.hasPointerCapture(e.pointerId)) c.releasePointerCapture(e.pointerId);

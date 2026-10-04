@@ -29,7 +29,7 @@ export const livePanel = {
       arousal: meter(t('Whole-brain activity')),
       health: meter(t('Health (body model)')),
     };
-    const now = card(t('Right now'), { tagEl: tag('measured') },
+    const now = card(t('Right now'), { tagEl: tag('simulation') },
       h('div', { class: 'state-big' }, glyph, h('div', {}, stateName, stateSub)),
       h('div', { style: { marginTop: '12px' } }, ...Object.values(meters).map((m) => m.el)));
 
@@ -44,7 +44,7 @@ export const livePanel = {
         action('drop', t('Taste bitter'), t('Bitter on her mouthparts'), () => cmd('taste.offer', { sugar: 0, bitter: 0.9, durationS: 2.5 })),
         action('drop', t('Sugar drop'), t('A drop in front of her'), () => cmd('food.add', { kind: 'sugar', conc: 0.8 })),
         action('drop', t('Sugar + bitter drop'), t('Will she still eat?'), () => cmd('food.add', { kind: 'mixed', conc: 0.8, bitter: 0.6 }))),
-      h('p', { class: 'note' }, t('Every button drives real sensory neurons of the connectome; what happens next is decided by the wiring. The explanation panel on the right shows why.')));
+      h('p', { class: 'note' }, t('Buttons stimulate mapped sensory populations. Responses depend on retained wiring and model assumptions; the explanation panel shows the modeled causal pathway.')));
 
     const bright = slider({ label: t('View brightness'), min: 0.5, max: 2.5, step: 0.05, value: ctx.views.terrarium.viewBrightness, format: (v) => `${num(v, 2)}×`,
       title: t('Camera exposure only. Her own eye always renders at the fixed physical exposure.'),
@@ -70,11 +70,15 @@ export const livePanel = {
     const view = card(t('View'), { tagEl: tag('observer') },
       bright.el, night.el, mapToggle.el, h('div', { class: 'field' }, mapSelect), h('div', { class: 'field' }, legend), mapInfo, h('div', { class: 'field' }, mapButtons));
 
-    const el = h('div', {},
-      panelHead(t('Live'), t('A fly, running on her connectome.'),
-        t('{n} real FlyWire neurons and {m} nerve-cord neurons decide what she does — 120 times a second, on a CPU core of their own.', {
-          n: ctx.data.circuit.neurons.length.toLocaleString(), m: (ctx.data.locomotor?.neurons?.length ?? 0).toLocaleString() })),
-      now, tryIt, view);
+    const counts = { n: ctx.data.circuit.neurons.length.toLocaleString(), m: (ctx.data.locomotor?.neurons?.length ?? 0).toLocaleString() };
+    const heading = {
+      male: [t('A male fly, brain and nerve cord of one animal.'),
+        t('{n} mapped brain neurons and {m} nerve-cord neurons of the same male fly (MaleCNS) decide what he does — 120 times a second, on a CPU core of their own.', counts)],
+      female: [t('A female fly, brain and nerve cord of one animal.'),
+        t('{n} mapped brain neurons and {m} nerve-cord neurons of the same female fly (BANC) decide what she does — 120 times a second, on a CPU core of their own.', counts)],
+    }[ctx.data.provenance?.flyModel] || [t('A fly, running on her connectome.'),
+      t('{n} real FlyWire neurons and {m} nerve-cord neurons decide what she does — 120 times a second, on a CPU core of their own.', counts)];
+    const el = h('div', {}, panelHead(t('Live'), ...heading), now, tryIt, view);
 
     return {
       el,

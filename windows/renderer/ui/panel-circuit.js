@@ -24,6 +24,9 @@ const PRESETS = [
 export const circuitPanel = {
   id: 'circuit', icon: 'circuit', title: 'Circuit', short: 'Circuit',
   build(ctx) {
+    // The connectome that is running: FlyWire, or the male/female single animal.
+    const source = { male: 'MaleCNS', female: 'BANC' }[ctx.data?.provenance?.flyModel] ?? 'FlyWire';
+    const release = { MaleCNS: 'MaleCNS v1.0', BANC: 'BANC v888' }[source] ?? 'FlyWire v783';
     const pops = ctx.info.populations;
     const rows = new Map();
     const genetic = () => ctx.snap?.genetics ?? [];
@@ -56,7 +59,7 @@ export const circuitPanel = {
       h('div', { style: { marginTop: '10px' } }, popList));
 
     // cell type search
-    const search = h('input', { type: 'search', placeholder: t('FlyWire cell type, e.g. DNp01, LC4, PAM, CB0762'), 'aria-label': t('Search FlyWire cell types') });
+    const search = h('input', { type: 'search', placeholder: t('{source} cell type, e.g. DNp01, LC4, PAM', { source }), 'aria-label': t('Search {source} cell types', { source }) });
     const results = h('div', { class: 'list', style: { marginTop: '8px' } });
     let searchTimer = null;
     search.addEventListener('input', () => {
@@ -67,8 +70,8 @@ export const circuitPanel = {
         if (search.value.trim() && !(found || []).length) results.replaceChildren(h('p', { class: 'note' }, t('No simulated neuron has that type.')));
       }, 180);
     });
-    const typeCard = card(t('Any FlyWire cell type'), { iconName: 'search' },
-      search, results, h('p', { class: 'note' }, t('Searches the real FlyWire v783 cell-type annotation of every simulated neuron.')));
+    const typeCard = card(t('Any {source} cell type', { source }), { iconName: 'search' },
+      search, results, h('p', { class: 'note' }, t('Searches the real {release} cell-type annotation of every simulated neuron.', { release })));
 
     const active = h('div', { class: 'chips' });
     const clearAll = h('button', { class: 'btn small ghost', type: 'button', onclick: () => ctx.command('genetics.clear') }, t('Remove all'));
@@ -89,7 +92,7 @@ export const circuitPanel = {
       h('p', { class: 'note' }, t('Scales every synapse of one transmitter class, as a receptor agonist or antagonist would at the level of synaptic strength. No pharmacokinetics; GABA and glutamate share the inhibitory class in the extracted data.')));
 
     // single neuron
-    const probeInput = h('input', { type: 'text', placeholder: t('#index or FlyWire ID — or click the brain'), 'aria-label': t('Neuron') });
+    const probeInput = h('input', { type: 'text', placeholder: t('#index or {source} ID — or click the brain', { source }), 'aria-label': t('Neuron') });
     const probeOut = h('div', {});
     let probeIndex = ctx.state.selectedNeuron;
     const doProbe = async (q) => {
@@ -100,7 +103,7 @@ export const circuitPanel = {
     };
     function renderProbe(r) {
       probeOut.replaceChildren(
-        kv([[t('FlyWire ID'), r.id], [t('Cell type'), r.type || '—'], [t('Class'), r.superClass], [t('Role / side'), `${r.role} / ${r.side ?? '—'}`],
+        kv([[t('{source} ID', { source }), r.id], [t('Cell type'), r.type || '—'], [t('Class'), r.superClass], [t('Role / side'), `${r.role} / ${r.side ?? '—'}`],
           [t('Pathway'), r.extension ? `${r.extension}${r.group ? ` · ${r.group}` : ''}` : t('core circuit')],
           [t('Inputs / outputs'), `${int(r.incoming)} / ${int(r.outgoing)}`], [t('Membrane'), `${num(r.membrane, 3)} / ${num(r.threshold, 2)}`],
           [t('Silenced'), r.silenced ? t('yes') : t('no')]]),
@@ -116,7 +119,7 @@ export const circuitPanel = {
     if (probeIndex !== null && probeIndex !== undefined) doProbe(`#${probeIndex}`);
 
     const el = h('div', {}, panelHead(t('Circuit'), t('Open the brain like a neuroscientist.'),
-      t('Every population below is a set of real, identified FlyWire neurons. Switch them off or on, change the synapses pharmacologically, or inspect a single cell.')),
+      t('Every population below is a set of real, identified {source} neurons. Switch them off or on, change the synapses pharmacologically, or inspect a single cell.', { source })),
     genetics, conditions, typeCard, pharma, probeCard);
 
     let probeT = 0;

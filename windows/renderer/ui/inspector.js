@@ -29,7 +29,8 @@ export function buildInspector(ctx) {
         h('small', {}, t('{n} simulated neurons at their real positions', { n: int(ctx.data.circuit.neurons.length) }))),
       h('div', { class: 'tools' }, legendBtn, synBtn, clearBtn));
     const legend = h('div', { class: 'legend', hidden: !legendOpen });
-    const hint = h('div', { class: 'brain-hint' }, t('Drag to turn · wheel to zoom · click to stimulate'));
+    const hint = h('div', { class: 'brain-hint' }, ctx.touch ? t('Drag to turn · pinch to zoom · tap to stimulate')
+      : t('Drag to turn · wheel to zoom · click to stimulate'));
     brainEl.append(bar, legend, hint);
     legendBtn.addEventListener('click', () => { legendOpen = !legendOpen; legend.hidden = !legendOpen; legendBtn.classList.toggle('on', legendOpen); if (legendOpen) renderLegend(); });
     synBtn.addEventListener('click', () => { ctx.views.brain.setSynapsesVisible(!ctx.views.brain.synapsesVisible); synBtn.classList.toggle('on', ctx.views.brain.synapsesVisible); });
@@ -90,7 +91,7 @@ export function buildInspector(ctx) {
     // 2 sensory
     const sens = Object.entries(e.sensory || {});
     if (sens.length) {
-      const names = { loomL: 'LC4/LPLC2 left', loomR: 'LC4/LPLC2 right', joA: 'JO-A/B', joW: 'JO-C/D/E', hot: t('hot cells'), cold: t('cold cells'),
+      const names = { loomL: t('LC4/LPLC2, left eye'), loomR: t('LC4/LPLC2, right eye'), joA: 'JO-A/B', joW: 'JO-C/D/E', hot: t('hot cells'), cold: t('cold cells'),
         sugar: t('sugar neurons'), bitter: t('bitter neurons'), joF: 'JO-F' };
       steps.push(h('div', { class: 'step' }, h('div', { class: 'k' }, t('Sensory neurons'), h('span', { class: 'tag measured' }, t('measured'))),
         h('div', { class: 'v' }, sens.map(([k, v]) => `${names[k] ?? k}: ${num(v, 0)} Hz`).join(' · '))));
@@ -131,7 +132,7 @@ export function buildInspector(ctx) {
     if (!events.length) {
       els.list.replaceChildren(h('div', { class: 'why-empty' },
         t('Every time she does something — takes off, grooms, backs up, extends her proboscis — the causal chain appears here: the trigger, the sensory neurons, the synaptic input to the neurons that decided, and the rule that made it movement.'),
-        h('br'), h('br'), t('Try: move the cursor quickly at her, or press L.')));
+        h('br'), h('br'), ctx.touch ? t('Try: swipe quickly at her, or send a looming shadow under Stimulate.') : t('Try: move the cursor quickly at her, or press L.')));
       return;
     }
     // Spontaneous repeats (same kind, no external trigger, nothing in between)

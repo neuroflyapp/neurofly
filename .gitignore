@@ -17,3 +17,13 @@ nohup.out
 windows/test-artifacts/
 __pycache__/
 *.pyc
+/raw_banc_as_malecns/
+
+# Android app: the web build, Gradle outputs and release files are generated
+# (mobile/tools/build-android.ps1); signing keys never live in the repository.
+/mobile/www/
+/mobile/dist/
+/mobile/.toolchain/
+*.jks
+*.keystore
+keystore.properties

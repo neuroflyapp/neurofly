@@ -7,11 +7,12 @@
 // signals — and the user's commands; this thread sends back one snapshot per
 // displayed frame. Sensing, neural integration, motor output and body
 // mechanics stay in lockstep inside tick(); the only thing that crosses the
-// thread boundary with a delay is the rendered eye, which was already a
-// throttled, one-frame-late readback.
+// thread boundary with a delay is the rendered eye, sampled every 50 ms of
+// simulated time and read back from the GPU some 120-200 ms later.
 
 import { ClosedLoop } from '../src/closed-loop.js';
 import { nextSimulationWake } from '../src/worker-schedule.js';
+import { visionForRun } from '../src/vision-input.js';
 
 let loop = null;
 let last = 0;
@@ -19,6 +20,10 @@ let lastPost = 0;
 let mapRequest = null;           // { field } while the page shows the spatial map
 let frameBudgetMs = 1000 / 60;
 let framePending = false;
+// Ticks per run() at most (1/30 s of simulated time). When the brain is slower
+// than real time the clock used to run its whole 0.1 s catch-up in one block,
+// so the page, and the fly's rendered eye, saw the world in 0.1 s jumps.
+const CHUNK_TICKS = 4;
 
 function post(type, payload, transfer = []) { postMessage({ type, ...payload }, transfer); }
 
@@ -41,14 +46,21 @@ function run() {
   last = now;
   if (loop) {
     try {
-      loop.advance(elapsed);
+      loop.advance(elapsed, { maxTicks: CHUNK_TICKS });
       if (!framePending && now - lastPost >= frameBudgetMs) snapshotAndPost(now);
     } catch (error) {
       post('error', { message: error?.message ?? String(error), stack: error?.stack ?? '' });
     }
   }
-  setTimeout(run, loop ? nextSimulationWake({ paused: loop.paused, accumulator: loop.clock.accumulator, speed: loop.speed, computeMs: performance.now() - now }) : 16);
+  // Still behind after a chunk: continue at once, through a message rather
+  // than setTimeout(0) (nested timers are clamped to 4 ms); the page's frame
+  // acknowledgements and inputs are handled in between.
+  const behind = loop && !loop.paused && loop.clock.accumulator + 1e-10 >= 1 / 120;
+  if (behind) continueNow.port2.postMessage(0);
+  else setTimeout(run, !loop ? 16 : nextSimulationWake({ paused: loop.paused, accumulator: loop.clock.accumulator, speed: loop.speed, computeMs: performance.now() - now }));
 }
+const continueNow = new MessageChannel();
+continueNow.port1.onmessage = run;
 
 // While the page builds its views the live loop is paused. A throwaway loop
 // (own seed, discarded afterwards) runs one simulated second meanwhile, so the
@@ -96,7 +108,10 @@ onmessage = (event) => {
       case 'input': {
         if (!loop) break;
         if ('pointer' in m) loop.pointer = m.pointer;
-        if (m.vision) loop.vision = m.vision;
+        if (m.vision) {
+          const vision = visionForRun(m.vision, loop);
+          if (vision) loop.vision = vision;
+        }
         if (m.ambient) loop.ambient = { ...loop.ambient, ...m.ambient };
         if ('map' in m) mapRequest = m.map;
         if (m.frameBudgetMs) frameBudgetMs = m.frameBudgetMs;
@@ -104,7 +119,9 @@ onmessage = (event) => {
       }
       case 'cmd': {
         if (!loop) break;
+        const previousRun = loop.neuralRun;
         const result = loop.handle(m);
+        if (loop.neuralRun !== previousRun) loop.vision = { L: 0, R: 0 };
         if (m.name === 'pause') last = performance.now(); // paused wall time is not neural catch-up
         reply(m.id, result);
         break;

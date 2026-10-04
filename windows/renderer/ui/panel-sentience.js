@@ -10,7 +10,7 @@ import { runExperiment } from './panel-experiments.js';
 import { PROTOCOLS } from '../../src/experiments.js';
 
 const LEVEL = { VH: ['vh', 'very high'], H: ['h', 'high'], M: ['m', 'medium'], L: ['l', 'low'], VL: ['vl', 'no research found'] };
-const STATUS_LABEL = { present: ['present', 'present'], partial: ['partial', 'partly in the model'], experimental: ['experimental', 'experimental only'], absent: ['absent', 'not in the model'] };
+const STATUS_LABEL = { present: ['present', 'present'], partial: ['partial', 'partly in the model'], experimental: ['experimental', 'experimental only'], absent: ['absent', 'not in the model'], 'not-assessed': ['absent', 'not assessed for this specimen'] };
 const GOOD_VERDICTS = new Set(['threshold', 'soundEscapes', 'tradeoff', 'necessary', 'gates', 'learns', 'prefers', 'habituates', 'bothMatter']);
 
 const ANIMAL_TEXT = {
@@ -30,15 +30,16 @@ function modelText(c) {
     case 'nociception': return t('No classic nociceptors: body and leg nociceptors enter through the nerve cord, and the model\'s nerve cord carries only the legs\' position and load sensors. The model does contain the brain\'s own aversive and thermal sensors: {hot} hot cells, {cold} cold cells and {bitter} bitter taste neurons, with their real wiring.', m);
     case 'sensory-integration': return t('{cx} central-complex and {mb} mushroom-body neurons are part of the simulated circuit; {learn} of them belong to the mushroom body\'s learning circuitry (Kenyon cells, PAM/PPL dopamine neurons).', { cx: m.centralComplex, mb: m.mushroomBody, learn: m.mushroomBodyLearningCells });
     case 'integrated-nociception': {
+      if (c.anatomicalAnalysis?.status === 'unmatched-reference') return t('The full-brain pathway table belongs to FAFB, not the running {source} specimen. It is a comparative reference, not evidence of these routes in this animal. No matched full-brain route analysis is loaded.', { source: c.anatomicalAnalysis.runningBrain ?? '—' });
       if (!a.hotToMushroomBody) return t('The full-connectome pathway analysis is not loaded.');
-      return t('Measured in the complete FlyWire brain: hot cells reach the mushroom body across {hs} synapses ({hn} mushroom-body cells within two), bitter taste neurons across {bs} ({bn} cells within three); hot cells reach the central complex across {cs}. The simulation contains these routes only up to two or three synapses.', {
-        hs: a.hotToMushroomBody.minSynapses, hn: int(a.hotToMushroomBody.within2), bs: a.bitterToMushroomBody.minSynapses,
-        bn: int(a.bitterToMushroomBody.within3), cs: a.hotToCentralComplex?.minSynapses ?? '—' });
+      return t('Measured in the complete FAFB brain: hot cells reach the mushroom body in {hs} connection steps ({hn} cells within two), bitter cells in {bs} steps ({bn} cells within three); hot cells reach the central complex in {cs} steps. These anatomical paths do not establish that the reduced simulation retains or functionally uses them.', {
+        hs: a.hotToMushroomBody.minSynapses, hn: int(a.hotToMushroomBody.within2), bs: a.bitterToMushroomBody?.minSynapses ?? '—',
+        bn: int(a.bitterToMushroomBody?.within3), cs: a.hotToCentralComplex?.minSynapses ?? '—' });
     }
     case 'analgesia': return t('In-silico pharmacology can scale any transmitter class, and inhibition measurably gates the escape response — a response to a visual threat, not to a noxious stimulus. There is no endogenous analgesic system (opioid-like, nociceptin) in the model.');
-    case 'motivational-tradeoffs': return t('{sugar} sugar and {bitter} bitter taste neurons converge on {mn} proboscis and feeding motor neurons: bitter can override sugar. A reflex-level trade-off — the model has no hunger state that could shift it.', m);
+    case 'motivational-tradeoffs': return t('{sugar} sugar and {bitter} bitter taste neurons converge on {mn} proboscis and feeding motor neurons: bitter can override sugar. A reflex-level trade-off — the model has no hunger state that could shift it.', { ...m, mn: m.proboscis });
     case 'flexible-self-protection': return t('Dust on the antennae drives {jof} JO-F neurons, DNg12 and head grooming aimed at the dusted body part, which stops once it is clean. Stimulus-directed self-care — not wound-directed care.', { jof: m.joF });
-    case 'associative-learning': return t('The fly\'s learning centre, the dopamine-gated mushroom body, is not in the simulated circuit ({learn} learning-circuit cells). An experimental timing rule can be switched on and tested; so far it does not produce associative learning.', { learn: m.mushroomBodyLearningCells });
+    case 'associative-learning': return t('The reduced circuit contains {learn} annotated mushroom-body learning cells; this is not a complete dopamine-gated learning centre. The optional timing rule is a model experiment, not a validated reconstruction of associative learning.', { learn: m.mushroomBodyLearningCells });
     case 'analgesia-preference': return t('No injury state in the nervous system and no analgesic she could seek.');
     default: return '';
   }
@@ -110,7 +111,8 @@ export const sentiencePanel = {
           h('div', { class: 'chips', style: { marginTop: '5px' } },
             h('span', { class: 'level partial' }, t('{n} partly in the model', { n: counts.partial })),
             h('span', { class: 'level experimental' }, t('{n} experimental only', { n: counts.experimental })),
-            h('span', { class: 'level absent' }, t('{n} not in the model', { n: counts.absent }))),
+            h('span', { class: 'level absent' }, t('{n} not in the model', { n: counts.absent })),
+            counts.notAssessed ? h('span', { class: 'level absent' }, t('{n} not assessed for this specimen', { n: counts.notAssessed })) : null),
           tested),
         h('p', { class: 'note glance-caveat' }, t('The two rows answer different questions and cannot be compared: the first grades evidence about real flies, the second lists mechanisms in a simulation. Neither is a measure of feeling.'))));
 

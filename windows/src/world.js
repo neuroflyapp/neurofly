@@ -75,6 +75,8 @@ const FLASH_DURATION = 0.35;
 // stays on layer 0; the user's camera enables this layer. Lights must
 // enable it too or the cabinet would render unlit.
 export const DISPLAY_LAYER = 2;
+// The floor as the observer sees it (World.setDisplayLook); her eye keeps makeGround's tone.
+const DISPLAY_GROUND_COLOR = new THREE.Color(0xd6c6a8);
 
 function markDisplayOnly(root) {
   root.traverse((o) => {
@@ -243,29 +245,139 @@ function makeWalls(bounds) {
   return group;
 }
 
+// The observer's bench: oiled oak planks, drawn once on a canvas from a
+// fixed local seed (never the simulation's stream: the cabinet is built in
+// the worker too, where there is no document and no texture).
+function makeBenchTexture() {
+  if (typeof document === 'undefined') return null;
+  const rand = seededRandom(0x0a4b3e11);
+  const w = 1024, h = 512, planks = 6;
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  for (let p = 0; p < planks; p++) {
+    const y0 = (p * h) / planks, ph = h / planks;
+    const tone = 0.82 + rand() * 0.3;
+    ctx.fillStyle = `rgb(${(118 * tone) | 0}, ${(82 * tone) | 0}, ${(52 * tone) | 0})`;
+    ctx.fillRect(0, y0, w, ph);
+    // grain: long, slightly wavy darker and lighter fibres
+    for (let i = 0; i < 70; i++) {
+      const y = y0 + rand() * ph, amp = 1 + rand() * 3, freq = 0.004 + rand() * 0.01, phase = rand() * 6.3;
+      const dark = rand() < 0.65;
+      ctx.strokeStyle = dark ? `rgba(52, 32, 18, ${0.1 + rand() * 0.18})` : `rgba(196, 150, 104, ${0.06 + rand() * 0.1})`;
+      ctx.lineWidth = 0.6 + rand() * 1.6;
+      ctx.beginPath();
+      for (let x = 0; x <= w; x += 16) {
+        const yy = y + Math.sin(x * freq + phase) * amp;
+        if (x === 0) ctx.moveTo(x, yy); else ctx.lineTo(x, yy);
+      }
+      ctx.stroke();
+    }
+    // a knot now and then
+    if (rand() < 0.6) {
+      const kx = rand() * w, ky = y0 + ph * (0.3 + rand() * 0.4), kr = 5 + rand() * 9;
+      for (let k = 4; k >= 1; k--) {
+        ctx.fillStyle = `rgba(${60 + k * 12}, ${36 + k * 8}, ${20 + k * 5}, 0.35)`;
+        ctx.beginPath();
+        ctx.ellipse(kx, ky, kr * k * 0.55 * 2.2, kr * k * 0.55, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    // the seam between planks
+    ctx.fillStyle = 'rgba(28, 18, 10, 0.75)';
+    ctx.fillRect(0, y0, w, 2);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+// A soft dark halo around the tank, so it sits on the bench: a blurred dark
+// rectangle the size of the tank's footprint, drawn once.
+function makeContactShadowTexture() {
+  if (typeof document === 'undefined') return null;
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.filter = 'blur(26px)';
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.fillRect(size * 0.2, size * 0.2, size * 0.6, size * 0.6);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// A flat frame in the ground plane: the outer rectangle minus the tank's
+// footprint, with UVs in world units (ShapeGeometry uses x/y as UV).
+function frameGeometry(outerW, outerD, innerW, innerD) {
+  const outer = new THREE.Shape();
+  outer.moveTo(-outerW / 2, -outerD / 2); outer.lineTo(outerW / 2, -outerD / 2);
+  outer.lineTo(outerW / 2, outerD / 2); outer.lineTo(-outerW / 2, outerD / 2); outer.closePath();
+  const hole = new THREE.Path();
+  hole.moveTo(-innerW / 2, -innerD / 2); hole.lineTo(-innerW / 2, innerD / 2);
+  hole.lineTo(innerW / 2, innerD / 2); hole.lineTo(innerW / 2, -innerD / 2); hole.closePath();
+  outer.holes.push(hole);
+  return new THREE.ShapeGeometry(outer);
+}
+
+// Observer-only furniture: the bench the tank stands on, its contact shadow,
+// the dark frame and its green edge. Hides the ground outside the simulated
+// tank from the observer; that ground stays visible to the fly's eye behind
+// the glass (this group is on DISPLAY_LAYER).
+const BENCH_MARGIN = 700;
+const BENCH_GRAIN_UNITS = 420;
+const BENCH_THICKNESS = 34;
 function makeCabinet(bounds) {
   const group = new THREE.Group();
   const frame = mat(0x17211e, 0.18, 0.16);
   const edge = mat(0x176b37, 0.14, 0.22);
-  const stage = mat(0x111a18, 0.04, 0.02);
+  const bench = mat(0x111a18, 0.04, 0.02);
+  const benchSide = mat(0x2a1a10, 0.05, 0.04);
+  const benchMap = makeBenchTexture();
+  if (benchMap) {
+    bench.color.setHex(0xa8968a);   // darkened so the habitat, not the bench, catches the eye
+    bench.map = benchMap;
+    benchMap.repeat.set(1 / BENCH_GRAIN_UNITS, 1 / BENCH_GRAIN_UNITS);
+    bench.shininess = 18;
+    bench.specular.setRGB(0.12, 0.1, 0.08);
+  }
   const w = bounds.width, d = bounds.height, rim = 22;
-  // A solid slab above z=-0.55 obscured the entire ground texture in the
-  // observer camera. Four narrow outside rails leave the habitat uncovered.
+  const outerW = w + 2 * BENCH_MARGIN, outerD = d + 2 * BENCH_MARGIN;
+  const top = new THREE.Mesh(frameGeometry(outerW, outerD, w, d), bench);
+  top.position.z = 0.7;
+  top.receiveShadow = false;
+  group.add(top);
   for (const side of [-1, 1]) {
-    // Hide the extra ground outside the simulated tank from the observer.
-    // That ground remains available to the fly's eye behind the glass.
-    const surround = 260;
-    const backdrop = new THREE.Mesh(new THREE.BoxGeometry(w + 2 * surround, surround, 2), stage);
-    backdrop.position.set(0, side * (d / 2 + surround / 2), -0.25);
-    const flank = new THREE.Mesh(new THREE.BoxGeometry(surround, d, 2), stage);
-    flank.position.set(side * (w / 2 + surround / 2), 0, -0.25);
+    const front = new THREE.Mesh(new THREE.BoxGeometry(outerW, 4, BENCH_THICKNESS), benchSide);
+    front.position.set(0, side * (outerD / 2 - 2), 0.7 - BENCH_THICKNESS / 2);
+    const end = new THREE.Mesh(new THREE.BoxGeometry(4, outerD, BENCH_THICKNESS), benchSide);
+    end.position.set(side * (outerW / 2 - 2), 0, 0.7 - BENCH_THICKNESS / 2);
+    group.add(front, end);
+  }
+  const shadowMap = makeContactShadowTexture();
+  if (shadowMap) {
+    const halo = 300;
+    // the texture's dark core (its middle 60 %) covers the footprint plus 20 units
+    shadowMap.repeat.set(0.6 / (w + 40), 0.6 / (d + 40));
+    shadowMap.offset.set(0.5, 0.5);
+    const shadow = new THREE.Mesh(frameGeometry(w + 2 * halo, d + 2 * halo, w, d),
+      new THREE.MeshBasicMaterial({ map: shadowMap, transparent: true, depthWrite: false, fog: false }));
+    shadow.position.z = 0.9;
+    shadow.renderOrder = 1;
+    group.add(shadow);
+  }
+  for (const side of [-1, 1]) {
     const horizontal = new THREE.Mesh(new THREE.BoxGeometry(w + rim * 2, rim, 8), frame);
     horizontal.position.set(0, side * (d / 2 + rim / 2), -2.5);
     const vertical = new THREE.Mesh(new THREE.BoxGeometry(rim, d, 8), frame);
     vertical.position.set(side * (w / 2 + rim / 2), 0, -2.5);
     const glint = new THREE.Mesh(new THREE.BoxGeometry(w + rim * 2, 1.2, 1.2), edge);
     glint.position.set(0, side * (d / 2 + 4), 1.9);
-    group.add(backdrop, flank, horizontal, vertical, glint);
+    group.add(horizontal, vertical, glint);
   }
   return markDisplayOnly(group);
 }
@@ -375,7 +487,48 @@ function makeLandscape(bounds) {
     ornaments.add(leaf);
   }
   markDisplayOnly(ornaments);
+  // Light playing on the pond, for the observer only: a moving pattern on
+  // the eye layer would be a visual stimulus. Drawn from its own fixed seed
+  // after the landscape's last seeded draw, so the layout is unchanged.
+  const caustics = makeCausticTexture();
+  if (caustics) {
+    const shimmer = new THREE.Mesh(new THREE.CircleGeometry(pondR * 0.97, 36), new THREE.MeshBasicMaterial({
+      map: caustics, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+    shimmer.position.set(pondX, pondY, 0.12);
+    caustics.repeat.set(1 / 70, 1 / 70);
+    group.add(markDisplayOnly(shimmer));
+    group.userData.shimmer = caustics;
+  }
   return group;
+}
+
+// A loose net of pale rings, tiled: caustics on the pond's floor.
+function makeCausticTexture() {
+  if (typeof document === 'undefined') return null;
+  const rand = seededRandom(0x7c0a5717);
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 46; i++) {
+    const x = rand() * size, y = rand() * size, r = 8 + rand() * 22;
+    const squash = 0.55 + rand() * 0.4, turn = rand() * Math.PI;
+    ctx.strokeStyle = `rgba(214, 240, 255, ${0.25 + rand() * 0.4})`;
+    ctx.lineWidth = 1 + rand() * 2.2;
+    for (const dx of [-size, 0, size]) {   // drawn into the neighbouring tiles too: seamless
+      for (const dy of [-size, 0, size]) {
+        ctx.beginPath();
+        ctx.ellipse(x + dx, y + dy, r, r * squash, turn, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 // ---- object kinds ----
@@ -1094,6 +1247,22 @@ export class World {
       if (hour >= h0 && hour <= h1) return v0 + (v1 - v0) * (hour - h0) / Math.max(0.001, h1 - h0);
     }
     return 1;
+  }
+
+  // The observer's look of the floor (renderer copy, display render only; a
+  // colour uniform, so no shader changes): the soil is lifted for the person
+  // watching and restored before the fly's eye renders.
+  setDisplayLook(on) {
+    const ground = this._ground?.material;
+    if (!ground) return;
+    ground.userData.eyeColor ??= ground.color.clone();
+    ground.color.copy(on ? DISPLAY_GROUND_COLOR : ground.userData.eyeColor);
+  }
+
+  // Observer-only motion (renderer copy): the light on the pond drifts.
+  animateDisplay(t) {
+    const caustics = this._landscape?.userData.shimmer;
+    if (caustics) caustics.offset.set(t * 0.011, Math.sin(t * 0.37) * 0.035);
   }
 
   update(dt, bounds, hour = null) {

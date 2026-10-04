@@ -55,4 +55,17 @@ for (const m of chartLabels) add(unquote(m[1]), 'protocol chart');
 const missing = [...texts].filter(([text]) => !(text in DE));
 for (const [text, where] of missing) console.log(`${where}: ${JSON.stringify(text)}`);
 console.log(`${texts.size} texts, ${missing.length} without a German translation`);
-if (process.argv.includes('--strict') && missing.length) process.exit(1);
+
+// The male fly's versions (i18n-male.js): every translated text that says
+// she/her needs one, except texts that only ever describe a female fly; and
+// every entry must still be a text the UI uses.
+const { MALE } = await import(pathToFileURL(path.join(ROOT, 'renderer/i18n-male.js')).href);
+const PRONOUN = /\b(she|her|hers|herself)\b/i;
+const noMale = Object.keys(DE).filter((text) => PRONOUN.test(text) && !/\bfemale\b/.test(text) && !(text in MALE));
+const staleMale = Object.keys(MALE).filter((text) => !(text in DE));
+const stillShe = Object.entries(MALE).filter(([, [en]]) => PRONOUN.test(en));
+for (const text of noMale) console.log(`no male version: ${JSON.stringify(text)}`);
+for (const text of staleMale) console.log(`male version of a text the UI no longer uses: ${JSON.stringify(text)}`);
+for (const [text] of stillShe) console.log(`male version still says she/her: ${JSON.stringify(text)}`);
+console.log(`${Object.keys(MALE).length} male versions, ${noMale.length + staleMale.length + stillShe.length} problems`);
+if (process.argv.includes('--strict') && (missing.length || noMale.length || staleMale.length || stillShe.length)) process.exit(1);

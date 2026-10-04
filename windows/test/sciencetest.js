@@ -115,6 +115,19 @@ check('the full-connectome pathway analysis is loaded and measures routes from s
     + `bitter -> mushroom body: ${bitterMB.minSynapses} (${bitterMB.within3} within 3)` : 'sentience_pathways.json missing'];
 });
 
+check('full-brain evidence requires an identified matching specimen, not only a loaded path table', () => {
+  const mismatched = assessSentience({ ...data, provenance: { flyModel: 'male' }, hasPlasticity: true });
+  const unidentified = assessSentience({ circuit: data.circuit, provenance: data.provenance,
+    pathways: { ...data.pathways, source: 'unidentified source' } });
+  const correct = assessSentience(data);
+  const c = (audit) => audit.criteria.find((criterion) => criterion.id === 'integrated-nociception');
+  const ok = c(mismatched).status === STATUS.notAssessed && c(mismatched).anatomy === null
+    && mismatched.anatomicalAnalysis.pathwayBrainId === 'fafb-v783'
+    && c(unidentified).status === STATUS.notAssessed && unidentified.anatomicalAnalysis.pathwayBrainId === null
+    && correct.anatomicalAnalysis.status === 'matched-specimen' && c(correct).anatomy.hotToMushroomBody;
+  return [!!ok, 'male and unknown-source paths are not credited as evidence; explicit FAFB match retained'];
+});
+
 // Regression guard: an earlier version cited a Gibbons et al. DOI that points
 // into a different journal, and attributed Ueno et al. (2017) to "Aso et al.".
 // Every source must be https, and those two errors must never come back.

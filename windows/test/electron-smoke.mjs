@@ -60,9 +60,35 @@ async function shot(win, name) {
 }
 
 async function run(win) {
-  const booted = await waitFor(win, `return !!(window.__nf?.snap && document.querySelector('#rail button'))`, 90000);
+  // A fresh profile must show the software terms before anything starts:
+  // Accept stays disabled until the box is ticked, and nothing boots before.
+  const termsShown = await waitFor(win, `return document.getElementById('terms')?.open === true;`, 30000);
+  const termsGate = termsShown ? await js(win, `const acc = document.getElementById('termsAccept');
+    const disabledFirst = acc.disabled; acc.click();
+    const stillOpen = document.getElementById('terms')?.open === true && !window.__nf?.snap;
+    document.getElementById('termsAgree').click();
+    const enabled = !acc.disabled; acc.click();
+    return { disabledFirst, stillOpen, enabled, gone: !document.getElementById('terms'),
+      stored: JSON.parse(localStorage.getItem('neurocause.termsAccepted') || 'null') };`) : null;
+  report(!!termsGate && termsGate.disabledFirst && termsGate.stillOpen && termsGate.enabled && termsGate.gone && !!termsGate.stored?.version,
+    'the software terms must be accepted before the Studio starts',
+    termsGate ? `accept disabled until ticked: ${termsGate.disabledFirst}; nothing ran before: ${termsGate.stillOpen}; stored version ${termsGate.stored?.version}` : 'no terms dialog on a fresh profile');
+  const booted = await waitFor(win, `return !!(window.__nf?.bootTimings?.interface && window.__nf?.snap && !window.__nf.snap.paused && document.querySelector('#rail button'))`, 90000);
   report(!!booted, 'the Studio boots and the simulation worker delivers frames', booted ? 'first snapshot received' : 'no snapshot within 90 s');
   if (!booted) return;
+  const preparation = await js(win, `const b = __nf.bootTimings; const el = document.getElementById('terrarium'); const bounds = __nf.views.terrarium.bounds;
+    return { b, width: bounds.width, height: bounds.height, paneWidth: Math.max(100, el.clientWidth), paneHeight: Math.max(100, el.clientHeight), batched: !!__nf.views.terrarium.world.batch };`);
+  report(preparation.b.initialSnapshot <= preparation.b.layout
+    && preparation.b.layout <= preparation.b.warm && preparation.b.warm <= preparation.b.interface
+    && preparation.b.interface <= preparation.b.firstFrame
+    && preparation.batched
+    && preparation.width === preparation.paneWidth && preparation.height === preparation.paneHeight,
+  'the final arena and paused world are prepared before graphics and neural time start',
+    `snapshot ${preparation.b.initialSnapshot} → layout ${preparation.b.layout} → graphics ${preparation.b.warm} → ready ${preparation.b.interface} → live ${preparation.b.firstFrame} ms; arena ${preparation.width}×${preparation.height}`);
+  // A fresh profile shows the quick guide 1.4 s after the interface is built,
+  // and keyboard shortcuts are off while it is open. Since start-up got
+  // faster the first snapshot can arrive before it: wait for it, then close.
+  await waitFor(win, `return document.getElementById('help')?.open === true;`, 5000);
   await js(win, `document.getElementById('help')?.close(); return true;`);
 
   const info = await js(win, `const d = __nf.data; return { brain: d.circuit.neurons.length, cord: d.locomotor?.neurons?.length ?? 0 };`);
@@ -80,7 +106,7 @@ async function run(win) {
     const t1 = await js(win, clock);
     neural = t1.ms - t0.ms; wall = t1.at - t0.at; windows++;
   }
-  report(neural > 0.4 * wall, 'neural time advances in real time',
+  report(neural > 0.4 * wall, 'neural time advances at least 0.4× wall-clock speed',
     `${Math.round(neural)} ms of neural time in ${(wall / 1000).toFixed(1)} s wall time (window ${windows})`);
   // Left alone, the live fly must not keep fleeing things that are not there.
   // Only this run sees her rendered eye and the operating-system senses; with
@@ -88,11 +114,11 @@ async function run(win) {
   // made her take off ~9 times per 20 s with nothing approaching (VALIDATION.md,
   // 30 September 2026). Expected now: ~0.4 per 20 s.
   await js(win, `__nf.client.input({ pointer: null }); __nf.state.lastEvents.length = 0; return true;`);
-  await sleep(20000);
+  await sleep(30000);
   const phantom = await js(win, `return __nf.state.lastEvents.filter((e) => e.kind === 'takeoff'
     && ['loomL', 'loomR', 'sound', 'puff'].includes(e.trigger?.channel)).map((e) => e.trigger.channel);`);
-  report(phantom.length <= 3, 'the untouched live fly does not flee phantom threats',
-    `${phantom.length} sensory takeoffs in 20 s${phantom.length ? ` (${phantom.join(', ')})` : ''}`);
+  report(phantom.length <= 4, 'the untouched live fly does not flee phantom threats',
+    `${phantom.length} sensory takeoffs in 30 s${phantom.length ? ` (${phantom.join(', ')})` : ''}`);
 
   // The connectome view is cheap and must stay sharp: native resolution even
   // while the terrarium lowers its own under load.
@@ -113,6 +139,111 @@ async function run(win) {
     && cameraModes.zoomed && cameraModes.resetMode === 'overview' && cameraModes.resetZoom === 1,
   'all four terrarium cameras have correct labels, zoom and reset',
   `${cameraModes.result.map((x) => `${x.mode}:${x.label}`).join(', ')}; reset=${cameraModes.resetMode}/${cameraModes.resetZoom}`);
+
+  // The real eye pass must be byte-identical when only observer controls
+  // change. Freeze the worker and the view animation, drain old eye reads,
+  // then use _renderEye itself. Suppressing _processEye during these manual
+  // captures prevents the test images from becoming sensory inputs. Restore
+  // its pixels/time afterwards so normal sampling resumes without a fake cue.
+  const eye = await js(win, `
+    await __nf.command('pause', { paused: true }, { reply: true });
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const until = async (predicate) => {
+      const end = performance.now() + 6000;
+      while (!predicate()) { if (performance.now() > end) throw new Error('eye test timeout'); await wait(10); }
+    };
+    await until(() => __nf.snap.paused);
+    const v = __nf.views.terrarium, r = v.renderer;
+    const saved = { frame: v.frame, enabled: v.visionEnabled, process: v._processEye,
+      onVision: v.onVision, mode: v.cameraMode, brightness: v.viewBrightness,
+      map: v.mapOverlay.visible, mapPixels: v.mapTexData.slice(), shadowUpdate: r.shadowMap.needsUpdate };
+    let inputs = 0;
+    try {
+      v.visionEnabled = false; v.frame = () => {};
+      await until(() => v.eyeReads.length === 0);
+      saved.pixels = v.visionPixels.slice(); saved.imageT = v.eyeImageT;
+      v._processEye = () => {}; v.onVision = () => { inputs++; };
+      // A saturated, opaque test overlay makes leakage detectable even if
+      // the real occupancy map has not collected any visits yet.
+      v.mapTexData.fill(255); v.mapTexture.needsUpdate = true;
+      const display = () => {
+        v._applyFov();
+        if (v.cameraMode === 'follow' || v.cameraMode === 'close') v._updateFollowCamera(10);
+        else if (v.cameraMode === 'overhead') v._updateOverheadCamera(10);
+        else v.placeCamera();
+        v._lookFor('display'); r.shadowMap.needsUpdate = true; r.render(v.scene, v.camera);
+      };
+      const capture = async () => {
+        if (!v._renderEye()) throw new Error('eye pass could not start');
+        const read = v.eyeReads.at(-1);
+        await until(() => read.done);
+        if (!read.ok) throw new Error('eye readback failed');
+        return v.visionPixels.slice();
+      };
+      display(); const reference = await capture();
+      let changed = 0, maxDelta = 0;
+      for (const mode of ['overview', 'follow', 'close', 'overhead']) {
+        for (const brightness of [0.5, 2.5]) {
+          v.cameraMode = mode; v.setViewBrightness(brightness); v.setMapVisible(brightness === 2.5);
+          display(); const pixels = await capture();
+          for (let i = 0; i < pixels.length; i++) {
+            const delta = Math.abs(pixels[i] - reference[i]);
+            if (delta) changed++; maxDelta = Math.max(maxDelta, delta);
+          }
+        }
+      }
+      const colors = new Set();
+      for (let i = 0; i < reference.length; i += 4) colors.add(reference[i] * 65536 + reference[i + 1] * 256 + reference[i + 2]);
+      return { changed, maxDelta, inputs, colors: colors.size, bytes: reference.length, cases: 8 };
+    } finally {
+      v._processEye = saved.process; v.onVision = saved.onVision;
+      if (saved.pixels) { v.visionPixels.set(saved.pixels); v.eyeImageT = saved.imageT; }
+      v.cameraMode = saved.mode; v.setViewBrightness(saved.brightness); v.setMapVisible(saved.map);
+      v.mapTexData.set(saved.mapPixels); v.mapTexture.needsUpdate = true;
+      r.setRenderTarget(null); v._lookFor('display'); r.shadowMap.needsUpdate = saved.shadowUpdate;
+      v.frame = saved.frame; v.visionEnabled = saved.enabled;
+      await __nf.command('pause', { paused: false }, { reply: true });
+    }
+  `);
+  report(eye.changed === 0 && eye.inputs === 0 && eye.colors > 1,
+    'observer cameras, brightness and map never change the actual eye pixels',
+    `${eye.cases} cases × ${eye.bytes} bytes; ${eye.changed} differences, max delta ${eye.maxDelta}; ${eye.inputs} generated sensory inputs; ${eye.colors} scene colours`);
+
+  // Exercise the actual worker boundary: the old run's GPU result can arrive
+  // after respawn but before the renderer knows its new identity.
+  const retinalRun = await js(win, `
+    await __nf.command('pause', { paused: true }, { reply: true });
+    const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+    const until = async predicate => {
+      const end = performance.now() + 6000;
+      while (!predicate()) { if (performance.now() > end) throw new Error('retinal run test timeout'); await wait(20); }
+    };
+    await until(() => __nf.snap.paused);
+    const old = { neuralRun: __nf.snap.neuralRun, individual: __nf.snap.individual };
+    try {
+      await __nf.command('respawn', { seed: 62432 }, { reply: true });
+      __nf.client.input({ vision: { ...old, L: 1, R: 1 } });
+      await until(() => __nf.snap.neuralRun !== old.neuralRun);
+      await wait(150);
+      const rejected = __nf.snap.inputs.visionL === 0 && __nf.snap.inputs.visionR === 0;
+      const current = { neuralRun: __nf.snap.neuralRun, individual: __nf.snap.individual };
+      __nf.client.input({ vision: { ...current, L: 0.05, R: 0.07 } });
+      await until(() => __nf.snap.inputs.visionL === 0.05 && __nf.snap.inputs.visionR === 0.07);
+      return { rejected, currentAccepted: true, oldRun: old.neuralRun, newRun: current.neuralRun };
+    } finally {
+      __nf.client.input({ vision: { neuralRun: __nf.snap.neuralRun, individual: __nf.snap.individual, L: 0, R: 0 } });
+      await __nf.command('pause', { paused: false }, { reply: true });
+    }
+  `);
+  report(retinalRun.rejected && retinalRun.currentAccepted,
+    'the worker rejects an old animal retinal frame and accepts the current run', JSON.stringify(retinalRun));
+
+  for (const mode of ['follow', 'close']) {
+    await js(win, `const v = __nf.views.terrarium; while (v.cameraMode !== '${mode}') document.querySelector('#hud .hud-tr button').click(); return true;`);
+    await sleep(800);
+    await shot(win, `camera-${mode}`);
+  }
+  await js(win, `document.querySelectorAll('#hud .hud-tr button')[3].click(); return true;`);
 
   await js(win, `document.getElementById('focusMode').click(); return true;`);
   const focused = await js(win, `return document.body.classList.contains('focus-mode') && document.getElementById('focusMode').getAttribute('aria-pressed') === 'true' && getComputedStyle(document.getElementById('panel')).display === 'none';`);
@@ -156,7 +287,9 @@ async function run(win) {
     }
   }
 
-  // Pause freezes neural time; resume continues it.
+  // Pause freezes neural time; resume continues it. (Shortcuts are off while
+  // the quick guide is open; the detail says so if that is why it fails.)
+  const guideOpen = await js(win, `return !!document.getElementById('help')?.open;`);
   await js(win, `document.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true })); return true;`);
   const paused = await waitFor(win, `return __nf.snap.paused ? __nf.snap.neuralMs : null;`, 3000);
   await sleep(800);
@@ -164,7 +297,7 @@ async function run(win) {
   await js(win, `document.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true })); return true;`);
   const resumed = await waitFor(win, `return !__nf.snap.paused;`, 3000);
   report(paused !== null && Math.abs(stillPaused - paused) < 1 && !!resumed, 'Space pauses and resumes the whole simulation',
-    `paused at ${Math.round(paused ?? -1)} ms, ${Math.round(stillPaused)} ms after 0.8 s, resumed ${!!resumed}`);
+    `paused at ${Math.round(paused ?? -1)} ms, ${Math.round(stillPaused)} ms after 0.8 s, resumed ${!!resumed}${guideOpen ? ' (quick guide was open)' : ''}`);
 
   // The language toggle relabels the interface without restarting the run.
   const before = await js(win, `return { lang: document.documentElement.lang, rail: document.querySelector('#rail').innerText, ms: __nf.snap.neuralMs };`);

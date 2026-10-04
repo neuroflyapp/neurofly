@@ -29,7 +29,8 @@ export function buildHud(ctx) {
       camBtn.replaceChildren(icon('camera', 15), h('span', {}, t(cameraModeLabel(mode))));
     } }, '↺');
     const tr = h('div', { class: 'hud-tr' }, camBtn, zoomIn, zoomOut, reset);
-    const br = h('div', { class: 'hud-br' }, t('Drag the fly · right-drag to orbit · Shift+right-drag to pan · wheel to zoom'));
+    const br = h('div', { class: 'hud-br' }, ctx.touch ? t('Drag the fly · swipe at her to startle · two fingers turn and zoom')
+      : t('Drag the fly · right-drag to orbit · Shift+right-drag to pan · wheel to zoom'));
     const toast = h('div', { class: 'why-toast', hidden: true, onclick: () => { if (lastShown) ctx.openEvent?.(lastShown); } });
     root.replaceChildren(tl, tr, br, toast);
     els = { beh, chips, toast, glyph: beh.querySelector('.glyph'), label: beh.querySelector('b'), detail: beh.querySelector('small') };
@@ -83,7 +84,7 @@ export function buildHud(ctx) {
     els.toast.replaceChildren(
       h('div', { class: 'eyebrow' }, icon('why', 13), t('Why?')),
       h('b', {}, t(info.label)),
-      h('span', {}, `${trig}${e.trigger?.latencyMs != null ? ` · ${e.trigger.latencyMs <= 8 ? '≤ 8' : e.trigger.latencyMs} ms` : ''} — ${t('click for the full chain')}`));
+      h('span', {}, `${trig}${e.trigger?.latencyMs != null ? ` · ${e.trigger.latencyMs <= 8 ? '≤ 8' : e.trigger.latencyMs} ms` : ''} — ${ctx.touch ? t('tap for the full chain') : t('click for the full chain')}`));
     els.toast.hidden = false;
     toastTimer = 6;
   }

@@ -17,7 +17,7 @@ const RATE_SIGNALS = [
   // Arousal reads the central neurons, not the whole brain: real stepping
   // raises the ascending (afferent) input by itself and, through the
   // whole-brain rate, would open the takeoff gate far more often.
-  ['arousal', (sim) => sim.rateCentral ?? sim.ratePop, 20, 0, 1],
+  ['arousal', (sim) => (sim.rateCentral ?? sim.ratePop) * (sim.arousalScale ?? 1), 20, 0, 1],
 ];
 
 export class SignalBuilder {

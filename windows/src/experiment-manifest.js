@@ -2,6 +2,8 @@
 // CSV traces and screenshots. It stores declared model choices and measured
 // provenance, not an invented account of an animal's internal experience.
 
+import { brainVncCoupling } from './provenance.js';
+
 export const MANIFEST_SCHEMA = 'neurofly-run-manifest/2';
 
 function finiteNumber(value, fallback = null) {
@@ -40,6 +42,7 @@ export function makeExperimentManifest({
   environment = null,
   body = null,
   interventions = null,
+  simulation = null,
 } = {}) {
   const provenance = data?.provenance || {};
   const audit = provenance.brainAudit || {};
@@ -52,6 +55,11 @@ export function makeExperimentManifest({
   const baseEdges = count(audit.edges) ?? (!hasExtension ? runningEdges : null);
   const addedCount = (running, base) => running !== null && base !== null && running >= base
     ? running - base : null;
+  const coupling = brainVncCoupling(simulation);
+  // Actual Float32 thresholds, not a rounded declaration. An explicit test
+  // override can differ from data.js's calibration, so record both separately.
+  const gfThresholds = simulation?.gf && simulation?.thresholds
+    ? [...new Set(Array.from(simulation.gf, (i) => finiteNumber(simulation.thresholds[i])))] : null;
   return Object.freeze({
     schema: MANIFEST_SCHEMA,
     createdAt,
@@ -65,7 +73,28 @@ export function makeExperimentManifest({
       neuralSeed: finiteNumber(neuralSeed),
       neuralTimeMs: finiteNumber(neuralTimeMs),
       neuralIntegrator: '1-ms leaky integrate-and-fire',
-      brainVncBridge: 'modeled same-type/side population-rate interface',
+      flyModel: provenance.flyModel ?? null,
+      brainVncBridge: coupling.label,
+      brainVncCoupling: coupling,
+      parameters: Object.freeze({
+        coreWeightPerSynapse: finiteNumber(simulation?.weightScale),
+        coreSynapseScale: finiteNumber(simulation?.synapseScale),
+        pathwayWeightPerSynapse: finiteNumber(simulation?.pathwayWeight),
+        pathwayRecurrentFraction: finiteNumber(simulation?.pathwayRecurrent),
+        pathwayEdgeCap: finiteNumber(simulation?.pathwayCap),
+        giantFiberThresholds: metadataSnapshot(gfThresholds),
+        arousalScale: finiteNumber(simulation?.arousalScale),
+        cordParameters: metadataSnapshot(simulation?.locomotor?.parameters),
+        steppingRulesActive: simulation?.locomotor === undefined ? null : !!simulation.locomotor?.stepper,
+        steppingRuleParameters: metadataSnapshot(simulation?.locomotor?.stepper?.p),
+        scope: 'Model parameters, not measured cell physiology. Brain efficacy and thresholds use normalised membrane units; synapse scales, recurrence fractions and arousal scales are dimensionless.',
+      }),
+      declaredCalibration: metadataSnapshot({
+        synapseScale: finiteNumber(data?.circuit?.synapseScale),
+        gfThreshold: finiteNumber(data?.circuit?.gfThreshold),
+        pathwayCalibration: data?.circuit?.pathwayCalibration ?? null,
+        arousalScale: finiteNumber(data?.circuit?.arousalScale),
+      }),
     }),
     data: Object.freeze({
       specimens: metadataSnapshot(provenance.specimens),
@@ -84,6 +113,15 @@ export function makeExperimentManifest({
       brainBundleSHA256: provenance.brainCircuitSHA256 ?? null,
       vncBundleSHA256: provenance.locomotorSHA256 ?? null,
       brainPointsSHA256: provenance.brainPointsSHA256 ?? null,
+      brainSource: data?.circuit?.source ?? null,
+      brainSources: metadataSnapshot(data?.circuit?.sources),
+      brainCoordinateRegistration: metadataSnapshot(data?.circuit?.frame),
+      brainCoordinateRegistrationScope: 'Coordinate fit for display, not physiological calibration or identity matching between animals.',
+      vncSource: data?.locomotor?.source ?? null,
+      vncContentSHA256: provenance.locomotorContentSHA256 ?? null,
+      rhythmDecoderSHA256: provenance.rhythmDecoderSHA256 ?? null,
+      rhythmDecoderStatus: provenance.rhythmDecoderStatus ?? 'absent',
+      rhythmDecoder: metadataSnapshot(provenance.rhythmDecoder),
       structuralAuditValid: typeof audit.valid === 'boolean' ? audit.valid : null,
       structuralAuditScope: 'base-brain-bundle',
       // Which FlyWire cell-type annotation (if any) decided how stimuli were

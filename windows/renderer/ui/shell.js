@@ -26,9 +26,9 @@ export function buildShell(ctx, panels) {
     document.createTextNode(' · '), sessionSpeed, speedLabel, sessionGap);
   const speeds = [0.25, 0.5, 1, 2, 4];
   const speedSeg = h('div', { class: 'seg', role: 'group' });
-  const pauseBtn = h('button', { class: 'btn', type: 'button' });
+  const pauseBtn = h('button', { class: 'btn m-keep', type: 'button' });
   const recordText = h('span');
-  const recordBtn = h('button', { class: 'btn', type: 'button' }, icon('record', 14), recordText);
+  const recordBtn = h('button', { class: 'btn m-keep', type: 'button' }, icon('record', 14), recordText);
   const snapBtn = h('button', { class: 'btn ghost icon-only', type: 'button' }, icon('camera'));
   const focusStimBtn = h('button', { id: 'focusStim', class: 'btn', type: 'button' }, icon('loom', 16), h('span', {}, t('Looming threat')));
   const focusBtn = h('button', { id: 'focusMode', class: 'btn ghost icon-only', type: 'button', 'aria-pressed': 'false' }, icon('expand'));
@@ -184,19 +184,28 @@ export function buildShell(ctx, panels) {
     help.replaceChildren(h('form', { method: 'dialog' },
       h('div', { class: 'eyebrow' }, t('Quick guide')),
       h('h2', {}, t('A fruit fly, neuron by neuron.')),
-      h('p', {}, t('The fly in the middle is driven by a real brain wiring diagram: every movement comes from simulated neurons connected exactly as in the FlyWire connectome. On the right you see the same brain in 3D, firing. Below it, the explanation panel tells you why she did what she just did.')),
-      h('dl', {},
-        h('dt', {}, t('Left click the fly')), h('dd', {}, t('touch her; drag and release to flick her away')),
-        h('dt', {}, t('Move the cursor fast at her')), h('dd', {}, t('a looming threat — watch the giant fiber')),
-        h('dt', {}, t('Right drag · wheel')), h('dd', {}, t('orbit and zoom the camera')),
-        h('dt', {}, t('Click the brain')), h('dd', {}, t('stimulate the neurons you clicked')),
-        h('dt', {}, 'Space'), h('dd', {}, t('pause or resume')),
-        h('dt', {}, `1 – ${panels.length}`), h('dd', {}, t('switch workspaces')),
-        h('dt', {}, 'L'), h('dd', {}, t('send a looming stimulus'))),
+      h('p', {}, ctx.mobile?.active
+        ? t('The fly is driven by a real brain wiring diagram: every movement comes from simulated neurons connected exactly as in the {source} connectome. Brain shows the same brain in 3D, firing; Why tells you why she did what she just did.', { source: { male: 'MaleCNS', female: 'BANC' }[ctx.data?.provenance?.flyModel] ?? 'FlyWire' })
+        : t('The fly in the middle is driven by a real brain wiring diagram: every movement comes from simulated neurons connected exactly as in the {source} connectome. On the right you see the same brain in 3D, firing. Below it, the explanation panel tells you why she did what she just did.', { source: { male: 'MaleCNS', female: 'BANC' }[ctx.data?.provenance?.flyModel] ?? 'FlyWire' })),
+      ctx.touch
+        ? h('dl', {},
+          h('dt', {}, t('Touch the fly')), h('dd', {}, t('drag and release to flick her away')),
+          h('dt', {}, t('Swipe fast at her')), h('dd', {}, t('a looming threat — watch the giant fiber')),
+          h('dt', {}, t('Two fingers')), h('dd', {}, t('turn the camera; pinch to zoom')),
+          h('dt', {}, t('Tap the brain')), h('dd', {}, t('stimulate the neurons you tapped')))
+        : h('dl', {},
+          h('dt', {}, t('Left click the fly')), h('dd', {}, t('touch her; drag and release to flick her away')),
+          h('dt', {}, t('Move the cursor fast at her')), h('dd', {}, t('a looming threat — watch the giant fiber')),
+          h('dt', {}, t('Right drag · wheel')), h('dd', {}, t('orbit and zoom the camera')),
+          h('dt', {}, t('Click the brain')), h('dd', {}, t('stimulate the neurons you clicked')),
+          h('dt', {}, 'Space'), h('dd', {}, t('pause or resume')),
+          h('dt', {}, `1 – ${panels.length}`), h('dd', {}, t('switch workspaces')),
+          h('dt', {}, 'L'), h('dd', {}, t('send a looming stimulus'))),
       h('p', { class: 'note' }, t('Wiring and synapse counts are measured; neuron dynamics, senses and body are models. Every tag in the app says which is which.')),
       h('div', { class: 'row', style: { marginTop: '16px' } }, h('button', { class: 'btn primary' }, t('Start exploring')))));
   }
   helpBtn.addEventListener('click', () => { renderHelp(); help.showModal(); });
+  ctx.showHelp = () => { renderHelp(); help.showModal(); };
   let firstRun = true;
   try { firstRun = !localStorage.getItem('neurofly.seenHelp'); localStorage.setItem('neurofly.seenHelp', '1'); } catch { /* optional */ }
   if (firstRun) setTimeout(() => { renderHelp(); help.showModal(); }, 1400);

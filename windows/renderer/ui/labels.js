@@ -63,9 +63,9 @@ export const LOOM_SOURCE = {
 };
 
 export const COMMAND_INFO = {
-  gf: 'giant fiber (DNp01)', dnaL: 'left steering neurons (DNa01/02)', dnaR: 'right steering neurons (DNa01/02)',
-  mdn: 'moonwalker neurons (MDN)', fwd: 'walking command (DNp09)', groom: 'leg-rubbing command (DNg11)',
-  escw: 'escape-wing neurons', dng12: 'head-grooming command (DNg12)', proboscis: 'proboscis motor neurons',
+  gf: 'giant fibers (DNp01)', dnaL: 'left steering neurons (DNa01/02)', dnaR: 'right steering neurons (DNa01/02)',
+  mdn: 'moonwalker neurons (MDN)', fwd: 'walking command neurons (DNp09)', groom: 'leg-rubbing command neurons (DNg11)',
+  escw: 'escape-wing neurons', dng12: 'head-grooming command neurons (DNg12)', proboscis: 'proboscis motor neurons',
 };
 
 // Populations whose meaning the panels spell out (key -> label, rate key).

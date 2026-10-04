@@ -50,10 +50,12 @@ const ACTION_POOLS = [
 export function validateLocomotorCircuit(circuit) {
   const neurons = circuit?.neurons, edges = circuit?.edges;
   if (!Array.isArray(neurons) || neurons.length === 0 || !Array.isArray(edges) || edges.length === 0) return false;
-  // This loader is specifically for the native male cord. A different animal
-  // cannot become this circuit just by having six motor-pool labels.
-  if (circuit.schemaVersion !== 1 || circuit.provenance?.dataset !== 'MaleCNS v1.0'
-    || circuit.provenance?.specimen !== 'male Drosophila melanogaster'
+  // Only native cords of an identified animal: the male MaleCNS cord, or the
+  // female BANC cord (etl_banc_adapter.py + etl_malecns.py). A different
+  // animal cannot become one of these just by having six motor-pool labels.
+  const NATIVE_CORDS = { 'MaleCNS v1.0': 'male Drosophila melanogaster', 'BANC v888': 'female Drosophila melanogaster' };
+  if (circuit.schemaVersion !== 1 || !Object.hasOwn(NATIVE_CORDS, circuit.provenance?.dataset ?? '')
+    || circuit.provenance?.specimen !== NATIVE_CORDS[circuit.provenance.dataset]
     || !Array.isArray(circuit.legOrder) || circuit.legOrder.join(',') !== 'RF,LF,RM,LM,RH,LH') return false;
   const contacts = circuit.rawSynapseCounts;
   if (!Array.isArray(contacts) || contacts.length !== edges.length) return false;
@@ -113,7 +115,7 @@ export class LocomotorSim {
     // premotor cells per unit of joint-axis demand; rhythmCap bounds it.
     this.parameters = { synapticGain: 2.4, baseline: 0.022, adaptationKick: 0.01,
       rhythm: {}, rhythmGain: 0.2, rhythmCap: 0.4, ...parameters };
-    if (!validateLocomotorCircuit(circuit)) throw new Error('Invalid MaleCNS locomotor circuit');
+    if (!validateLocomotorCircuit(circuit)) throw new Error('Invalid locomotor circuit (MaleCNS or BANC nerve cord)');
     this.circuit = circuit;
     const n = this.n = circuit.neurons.length;
     for (const name of CELL_STATE) this[name] = new Float64Array(n);
@@ -128,6 +130,18 @@ export class LocomotorSim {
     Object.assign(this, { totalSpikes: 0, motorSpikes: 0, sensorySpikes: 0, simMs: 0 });
     // Experimenter controls: leg feedback in, silenced cells, synapses and proprioception on or off.
     Object.assign(this, { feedback: [], silenced: new Set(), synapsesEnabled: true, feedbackEnabled: true });
+    // One transduction value per leg/receptor class; all cells with that
+    // assignment receive exactly the same input, without recalculating it
+    // for each cell every millisecond. Scratch state only, never a new model.
+    this._sensoryLevels = new Float64Array(6 * 3);
+    // Single-specimen coupling (a brain from the same animal): the brain's
+    // copies of this cord's descending cells hand over their own spikes
+    // (inject), the cord's ascending cells hand theirs back (spikedNow).
+    // Off unless a brain with the same cells is attached (identityCoupling).
+    this.mirrorDescending = false;
+    this.injected = null;
+    this.injectedCount = 0;
+    this.spikedNow = null;
     this._buildSynapses(circuit.edges);
     this._classifyCells(circuit.neurons);
     this._indexCache = new Map();
@@ -223,6 +237,7 @@ export class LocomotorSim {
   // Back to rest with the same anatomy: a fresh trial for the same cord.
   reset() {
     for (const name of CELL_STATE) this[name].fill(0);
+    this._sensoryLevels.fill(0);
     this.refractory.fill(0);
     this.dnRates.clear();
     this.stepper?.reset();
@@ -238,6 +253,9 @@ export class LocomotorSim {
   // specimens: 0.004 of drive per Hz, at most 0.35.
   setDescendingKey(key, rate) {
     this.dnRates.set(key, rate);
+    // With the brain's own copies of these cells attached, their spikes
+    // arrive one by one (inject); the rate only informs the stepping rules.
+    if (this.mirrorDescending) return;
     const cells = this.commandGroups.get(key);
     if (!cells) return;
     const value = Math.min(0.35, Math.max(0, rate) * 0.004);
@@ -296,21 +314,23 @@ export class LocomotorSim {
   // elevation rate, the others knee and hip movement and the knee's bend.
   _senseLegs() {
     const sensory = this.sensory, drive = this.sensoryDrive;
-    for (let q = 0; q < sensory.length; q++) drive[sensory[q]] = 0;
     const legs = this.feedback;
-    if (!this.feedbackEnabled || legs.length !== 6) return;
+    if (!this.feedbackEnabled || legs.length !== 6) {
+      for (let q = 0; q < sensory.length; q++) drive[sensory[q]] = 0;
+      return;
+    }
     const hipLimit = LegDynamics.hipLimit, restKnee = LegDynamics.restKnee;
+    const levels = this._sensoryLevels;
+    for (let leg = 0; leg < 6; leg++) {
+      const f = legs[leg], k = leg * 3;
+      levels[k + SENSE_LOAD] = (f.contact ? Math.min(1, f.load * 6) : 0) * 0.10;
+      levels[k + SENSE_HAIR_PLATE] = Math.min(1, Math.abs(f.hipAngle) / hipLimit + Math.abs(f.elevationVelocity) / 20) * 0.10;
+      levels[k + SENSE_OTHER] = Math.min(1, Math.abs(f.kneeVelocity) / 20 + Math.abs(f.hipVelocity) / 16 + Math.abs(f.kneeAngle - restKnee) * 0.35) * 0.10;
+    }
     const legOf = this.sensoryLeg, kindOf = this.sensoryKindCode;
     for (let q = 0; q < sensory.length; q++) {
       const i = sensory[q];
-      const f = legs[legOf[i]];
-      let level;
-      switch (kindOf[i]) {
-        case SENSE_LOAD: level = f.contact ? Math.min(1, f.load * 6) : 0; break;
-        case SENSE_HAIR_PLATE: level = Math.min(1, Math.abs(f.hipAngle) / hipLimit + Math.abs(f.elevationVelocity) / 20); break;
-        default: level = Math.min(1, Math.abs(f.kneeVelocity) / 20 + Math.abs(f.hipVelocity) / 16 + Math.abs(f.kneeAngle - restKnee) * 0.35);
-      }
-      drive[i] = level * 0.10;
+      drive[i] = levels[legOf[i] * 3 + kindOf[i]];
     }
   }
 
@@ -336,6 +356,8 @@ export class LocomotorSim {
         excNext[i] = 0; inhNext[i] = 0;
       }
       const anySilenced = silenced.size > 0;
+      const injected = this.injectedCount > 0 ? this.injected : null, track = this.spikedNow;
+      if (track) track.fill(0);
       for (let i = 0; i < n; i++) {
         rates[i] *= DECAY_RATE;
         adaptation[i] *= DECAY_ADAPTATION;
@@ -343,8 +365,11 @@ export class LocomotorSim {
         if (refractory[i] > 0) { refractory[i]--; continue; }
         voltage[i] = Math.max(-1, voltage[i] * DECAY_MEMBRANE + exc[i] + inh[i]
           + baseline + drive[i] + sensed[i] + rhythm[i] - adaptation[i]);
+        // A spike the same cell fired in the brain's copy of it (identity coupling).
+        if (injected && injected[i]) { injected[i] = 0; voltage[i] = 1; }
         if (!(voltage[i] >= 1)) continue;   // (NaN never fires)
         voltage[i] = 0; refractory[i] = REFRACTORY_MS;
+        if (track) track[i] = 1;
         adaptation[i] += kick;
         rates[i] += RATE_PER_SPIKE;
         this.totalSpikes++;
@@ -358,7 +383,37 @@ export class LocomotorSim {
         }
       }
     }
+    this.injectedCount = 0;
+    if (this.injected) this.injected.fill(0);   // an injection into a refractory cell is lost, as in the axon
     if (commands) this.updateMotorCommands();
+  }
+
+  // Couples this cord to a brain circuit from the same animal: cells with the
+  // same body ID are the same cells. Returns the shared descending and
+  // ascending cells as [cordIndex, brainIndex] pairs; with none shared (a
+  // brain from another animal), nothing changes.
+  identityCoupling(brainNeurons) {
+    const byId = new Map(brainNeurons.map((nr, i) => [String(nr.id), i]));
+    const descending = [], ascending = [];
+    this.circuit.neurons.forEach((nr, i) => {
+      const twin = byId.get(String(nr.id));
+      if (twin === undefined) return;
+      if (nr.role === 'descending') descending.push([i, twin]);
+      else if (nr.role === 'ascending') ascending.push([i, twin]);
+    });
+    if (descending.length) {
+      this.mirrorDescending = true;
+      this.injected = new Uint8Array(this.n);
+      for (const [i] of descending) this.drive[i] = 0;
+    }
+    if (ascending.length) this.spikedNow = new Uint8Array(this.n);
+    return { descending, ascending };
+  }
+
+  inject(i) {
+    if (!this.injected) return;
+    this.injected[i] = 1;
+    this.injectedCount++;
   }
 
   // Muscle activation per leg: a pool's mean rate r becomes r / (r + 50)

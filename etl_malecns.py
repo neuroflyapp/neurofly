@@ -468,6 +468,9 @@ def extract(raw, out, download=False, closure_rounds=0, upstream_partners=6, inh
         muscleFunctionSource=MUSCLE_FUNCTION_SOURCE,
         **MODEL_NOTES,
     )
+    adapted = raw / "source.json"   # tables renamed from another dataset (etl_banc_adapter.py)
+    if adapted.exists():
+        provenance.update(json.loads(adapted.read_text(encoding="utf-8"))["provenance"])
     if closure_rounds:
         closure = dict(rounds=closure_rounds, strongestPartnersPerTarget=upstream_partners,
                        strongestInhibitoryPartnersPerTarget=inhibitory_partners,
@@ -486,7 +489,7 @@ def extract(raw, out, download=False, closure_rounds=0, upstream_partners=6, inh
         (out / name).write_text(text + "\n")
     print(json.dumps(summary, indent=2))
     print("Checked: every leg has real descending routes to its coxal rotator and tibia/trochanter antagonist "
-          f"channels, and sensory input; {len(selected_ascending)} ascending neurons feed back onto the native male DNs.")
+          f"channels, and sensory input; {len(selected_ascending)} ascending neurons feed back onto the native DNs.")
 
 
 if __name__ == "__main__":
