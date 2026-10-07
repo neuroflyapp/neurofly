@@ -28,6 +28,7 @@ export function ensureTermsAccepted({ openExternal, quit }) {
       h('p', { class: 'terms-effective' }, `NeuroCause software terms · effective ${TERMS_EFFECTIVE}`),
       ...TERMS_SECTIONS.map(([head, ...paras]) => [head ? h('h3', {}, head) : null, ...paras.map((p) => h('p', {}, p))]));
     const dialog = h('dialog', { id: 'terms', class: 'terms', 'aria-labelledby': 'termsTitle' },
+      h('div', { class: 'wordmark terms-mark', role: 'img', 'aria-label': 'NeuroCause' }),
       h('h2', { id: 'termsTitle' }, t('Before you start')),
       h('p', {}, t('NeuroCause is an experimental simulation for research and teaching. To use it, please read and accept the software terms. Their key points:')),
       h('ul', { class: 'terms-points' },

@@ -1003,6 +1003,7 @@ export class World {
     this.landscapeSeed = layout?.landscapeSeed ?? Math.floor(R() * 0x100000000);
     if (dressing) this._buildDressing(bounds);
     this.objects = [];
+    this.rev = layout?.rev ?? 0;          // counts additions and removals (renderer copies follow it)
     this.t = layout?.t ?? 0;
     if (layout) this._placeFromLayout(layout.objects || []);
     else if (!empty) {
@@ -1027,9 +1028,10 @@ export class World {
     return {
       landscapeSeed: this.landscapeSeed,
       t: this.t,
+      rev: this.rev,
       objects: this.objects.map((o) => ({
         kind: o.kind, spec: o.spec, radius: o.radius, x: o.pos.x, y: o.pos.y, seed: o.seed,
-        scent: o.scent, solid: o.solid, flashPeriod: o.flashPeriod, flickerPhase: o.flickerPhase,
+        scent: o.scent, solid: o.solid, flashPeriod: o.flashPeriod, flickerPhase: o.flickerPhase, tag: o.tag ?? null,
       })),
     };
   }
@@ -1045,16 +1047,58 @@ export class World {
           flickerPhase: r.flickerPhase, flashPeriod: r.flashPeriod, scent: 0 });
         continue;
       }
-      const spec = OBSTACLE_SPECS[r.spec];
-      if (!spec) continue;
-      const mesh = withSeed(r.seed, () => spec.build(r.radius));
-      const topZ = renderedTop(mesh, r.radius * 1.1);
-      if (this.merge) mergeByMaterial(mesh);
-      mesh.position.x = r.x; mesh.position.y = r.y;
-      this.node.add(mesh);
-      this.objects.push({ kind: r.kind, spec: r.spec, seed: r.seed, pos: { x: r.x, y: r.y }, radius: r.radius,
-        solid: spec.solid, mesh, topZ, scent: r.scent });
+      this._addBuilt(r);
     }
+  }
+
+  _addBuilt(r) {
+    const spec = OBSTACLE_SPECS[r.spec];
+    if (!spec) return null;
+    const mesh = withSeed(r.seed, () => spec.build(r.radius));
+    const topZ = renderedTop(mesh, r.radius * 1.1);
+    if (this.merge) mergeByMaterial(mesh);
+    mesh.position.x = r.x; mesh.position.y = r.y;
+    this.node.add(mesh);
+    const o = { kind: r.kind, spec: r.spec, seed: r.seed, pos: { x: r.x, y: r.y }, radius: r.radius,
+      solid: spec.solid, mesh, topZ, scent: r.scent, tag: r.tag ?? null };
+    this.objects.push(o);
+    return o;
+  }
+
+  // Objects placed later (the Habitat game's garden): one of the world's own
+  // kinds, built from its seed, so another copy builds the same object. The
+  // tag identifies it for removal. Returns the object, or null.
+  addObject({ kind, x, y, seed, radius, tag }) {
+    const spec = OBSTACLE_SPECS.findIndex((s) => s.kind === kind);
+    if (spec < 0) return null;
+    const o = this._addBuilt({ kind, spec, seed: seed >>> 0, x, y, radius, tag,
+      scent: SCENT_BY_KIND[kind] ?? 0 });
+    if (o) { this.rev++; this.batchDirty = true; }
+    return o;
+  }
+
+  removeObject(tag) {
+    const k = this.objects.findIndex((o) => o.tag === tag);
+    if (k < 0) return false;
+    const [o] = this.objects.splice(k, 1);
+    this.node.remove(o.mesh);
+    disposeTree(o.mesh);
+    this.rev++;
+    this.batchDirty = true;
+    return true;
+  }
+
+  // Renderer copy: rebuild every object from the simulation's layout after it
+  // added or removed some (positions by index would otherwise mismatch).
+  replaceObjects(layout) {
+    for (const o of this.objects) { this.node.remove(o.mesh); disposeTree(o.mesh); }
+    for (const part of this.batchedParts || []) part.visible = true;
+    this.batchedParts = [];
+    this.objects = [];
+    this._placeFromLayout(layout.objects || []);
+    this.rev = layout.rev ?? this.rev;
+    this.batchDirty = true;
+    this.syncBatch(true);
   }
 
   // The renderer's copy follows the simulation's: positions, firefly height,

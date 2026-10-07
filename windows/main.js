@@ -323,6 +323,9 @@ ipcMain.handle('save-manifest', (_e, json) => save('manifest', json));
 // the native dialog. capturePage includes the whole displayed application
 // window, which is more useful for a lab note than a cropped WebGL canvas.
 ipcMain.handle('save-snapshot', () => save('snapshot'));
+// The Habitat game's photo: a PNG the page composed (the terrarium and a
+// caption); checked to be a PNG, written only where the user chooses.
+ipcMain.handle('save-photo', (_e, dataUrl) => save('photo', dataUrl));
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') { /* tray keeps it alive */ } });
 app.on('before-quit', event => {

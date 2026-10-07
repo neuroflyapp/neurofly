@@ -1,13 +1,14 @@
 {
   "name": "neurocause",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "description": "NeuroCause — in-silico experiments on measured nervous systems; first model: a fruit fly on the FlyWire brain and a MaleCNS walking circuit",
   "main": "main.js",
   "type": "module",
   "scripts": {
     "start": "electron .",
     "uitest": "electron test/electron-smoke.mjs",
-    "pretest": "node tools/check-i18n.mjs --strict && node test/bodyfeedbacktest.js && node test/legsense-cachetest.mjs && node test/rawaudit-test.js && node test/eyereadbacktest.js && node test/journaltest.js && node test/recordingpackagetest.js && node test/specimentest.js && node test/specimenservicetest.js && node test/swctest.js",
+    "habitat:test": "node test/habitatgametest.mjs && node test/worldedittest.mjs",
+    "pretest": "npm run habitat:test && node tools/check-i18n.mjs --strict && node test/bodyfeedbacktest.js && node test/legsense-cachetest.mjs && node test/rawaudit-test.js && node test/eyereadbacktest.js && node test/journaltest.js && node test/recordingpackagetest.js && node test/specimentest.js && node test/specimenservicetest.js && node test/swctest.js",
     "simtest": "node test/simtest.js",
     "behaviortest": "node test/behaviortest.js",
     "test": "node test/sciencetest.js && node test/sensorytest.js && node test/thermotest.js && node test/pathwaytest.js && node test/experimenttest.js && node test/plasticitytest.js && node test/learningsessiontest.js && node test/manifesttest.js && node test/plasticity-exporttest.js && node test/saveiotest.js && node test/samplingtest.js && node test/neuronprobetest.js && node test/performancetest.js && node test/simtest.js && node test/behaviortest.js && node test/locomotortest.js && node test/worldtest.js && node test/visiontest.js && node test/displaytest.js && node test/environmenttest.js && node test/spatialtest.js && node test/recordingtest.js && node test/historytest.js && node test/oneanimaltest.js && node test/sha256test.js && node test/webbuildtest.mjs && node test/run-models.mjs",

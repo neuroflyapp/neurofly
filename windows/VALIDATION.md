@@ -7,6 +7,44 @@ replaces, the per-feature honesty comments already inline in the source
 (`app.js`, `world.js`, `sim.js`, `locomotor.js`) — this document indexes and
 cross-checks them, it isn't the primary source of truth; the code is.
 
+## After 2.4.0: the Habitat game and a causal fix (7 October 2026)
+
+- **Causal tracing:** a sensory stimulus given by the experimenter (dust on
+  the antennae, a looming stimulus, a sensory burst) was recorded as a direct
+  stimulation and named the trigger of any behaviour in the next 0.8 s, also
+  of behaviours its receptors never reached (a moonwalk "caused" by dust).
+  It now names itself only when its own channel is traced into the deciding
+  neurons, as the project's invariant requires; direct neural stimulation is
+  unchanged.
+- **Virtual genetics in the causal chain:** behaviour driven by an activated
+  population (optogenetics, TrpA1) read "no external trigger". The
+  activation is now named as the trigger when the activated population is the
+  deciding one or delivers a traced share (>= 3 %) of its excitation
+  (`ClosedLoop._geneticTrigger`; MDN activated -> backward walking).
+- **Habitat game:** the pet is the simulated fly; the game only observes and
+  uses the Studio's ordinary commands. Measured in the running app: a sugar
+  drop of concentration 1.0 at the proboscis led to extension and feeding in
+  3/3 seeds, 0.8 in 0/3 (the taste circuit's threshold lies between them);
+  with the giant fiber silenced (DNp01 > Kir2.1, virtual genetics) four
+  abrupt looms gave no takeoff and four darts on foot.
+
+## After 2.4.0: review of 6 October 2026
+
+- **Habituation:** the learning mode now includes short-term depression of
+  the looming detectors' output (LC4/LPLC2; 2% of the resources per spike,
+  8 s recovery; modelling choices after Engel & Wu 1996). Before, the timing
+  rule potentiated LC→GF and repeated looms *sensitised* the giant fiber
+  (protocol verdict "sensitizes"). Now GF spikes per loom fall from 33 to
+  about 11 over 20 repetitions (fixed mode: ~41, flat); verdict "habituates".
+  Takeoffs still occur on the plateau; dishabituation is not modelled.
+- **Associative pairing** now tests after a retention interval (short-term
+  effects decay first) and runs 8 individuals per order: paired index 0.05
+  vs reversed 0.01, Mann–Whitney p 0.008 (seed 20260923). With 4 the test
+  could reach p < 0.05 only by perfect separation.
+- The fixed (default) mode is bit-identical: the closed-loop fingerprint
+  matches the previous commit. `npm test` (36 suites) and `npm run uitest`
+  pass; the UI test now also checks that every workspace fits its column.
+
 ## Release 2.4.0 (4 October 2026)
 
 Both applications now show the software terms before anything starts: the
@@ -1392,10 +1430,10 @@ stale — trust the test output, then fix this file.
 | system | real data/neurons used | what's genuinely measured live | what's a modeling choice |
 |---|---|---|---|
 | Vision | LC4/LPLC2 (real looming detectors) | The scene is actually re-rendered from a camera at the fly's head each tick; frame-to-frame luminance change, after centre-surround suppression of her own optic flow, drives the population — and the dashboard draws that post-suppression field, so what reaches the circuit is inspectable | The 64x24 render resolution and 0.05s update cadence are coarse stand-ins for ~700-800 real ommatidia/eye, not per-facet; the surround size (21x11 samples) is chosen to be wider than a plausible looming target, not measured from a receptive field |
-| Proximity/touch | `sim.sens` (general sensory partners) | True contact (tap) is a real, 3D-distance-scaled mechanosensory drive (accounts for the fly's actual flight altitude, not just ground-plane position); solid vs non-solid contact strength differs (1.0 vs 0.35) | Mere proximity (not yet touching) only contributes a small, short-range visual cue — see the corrections log above; no dedicated mechanoreceptor-class subpopulation, one shared real channel for all contact |
-| Smell | `sim.sens` (same channel as touch) | Real concentration field (inverse-distance falloff) from a draggable source plus every object's own real scent strength; measured across the floor it has genuine structure (median 0.15, only 2% saturating) | No antennal-lobe/odorant-receptor data in the extracted circuit — concentration is real, odor *identity* is not represented. How hard concentration drives the shared sensory channel is a tuned constant, set so a strong scent registers plainly without commanding an escape (see corrections log) |
+| Antennal contact (tap, rain, objects) | JO-C/D/E (`sim.sensWind`, deflection-sensitive Johnston's-organ cells) | A tap near her, raindrops and objects brushing her antennae deflect the antennae and drive JO-C/D/E with a distance- or contact-scaled pulse | Body contact elsewhere is observer telemetry only: the circuit holds no tactile bristle or nociceptor population, so nothing is routed into an invented touch or pain channel |
+| Smell | none | A concentration field (draggable source plus each object's scent) is computed and shown | The circuit contains no olfactory receptor neurons, so odour drives no neuron at all (`sensorytest`); the readout is an instrument, not a sense |
 | Temperature/cold/heat | `sim.activityScale` (baseline suppression); FlyWire's 7 hot and 9 cold thermosensory cells + 52 relay neurons (`data/thermo_extension.json`) | Cold genuinely suppresses the LIF baseline drive toward silence. Temperature at her position drives the real hot/cold cells (`sim.thermoHotDrive`/`thermoColdDrive`), and their measured wiring carries it into the circuit (`thermotest`). With a gradient set, all of this is a function of where she is standing. Heat no longer drives the visual looming detectors (it did above 38°C until this revision) | The suppression curve and the transduction (rate-of-change term plus a tonic term outside 24-26°C) are modeling choices, not measured receptor tuning. The extension stops two synapses from the thermosensors. The gradient is linear west-to-east and mean-preserving; a real arena's field would not be exactly linear |
-| Wind | `sim.airPuff` (JO-adjacent sensory pathway) + physical push | Real sensory drive scaled by speed; a real body-position push | JO-specific direction tuning is not in the extracted circuit — treated as omnidirectional puff strength |
+| Wind and sound | JO-C/D/E (wind, `windDrive`) and JO-A/B (sound, `soundDrive`); an air puff reaches both | Each stimulus drives only the Johnston's-organ cells that transduce it; from the wiring alone, sound drives the giant fiber and steady wind does not (`sensorytest`); wind also pushes the body | Transduction strength and the omnidirectional treatment of wind (no direction tuning in the extracted cells) are modelling choices |
 | Gravity | Real per-leg load feedback (`legdynamics.js`) | Ground-reaction load genuinely scales with `gravityScale`, reaching the VNC's real sensory neurons; flight altitude genuinely capped above 2.5x | The ground-reaction formula itself is an admitted kinematic-servo approximation, not measured limb dynamics |
 | Oxygen / smoke | `sim.activityScale` | Real baseline suppression toward true silence below ~10% effective oxygen; smoke genuinely depresses the same effective-oxygen value | The exact suppression curve is a modeling choice matching real anoxia's *qualitative* effect (silence, not "tiredness") |
 | Dopamine / serotonin / octopamine | Real per-edge `nt_class` from FlyWire's neurotransmitter prediction (`etl.py`) | Real count of synaptic deliveries/sec over edges FlyWire classifies as each transmitter | **Not** a hormone concentration — this model has no volume transmission; it is synaptic signalling rate only, stated in the UI tooltip |
@@ -1410,8 +1448,9 @@ stale — trust the test output, then fix this file.
 cd windows && npm test
 ```
 
-Twenty-eight suites as of 2.0.0 (see "Release 2.0.0" above for the five added
-in that release). The paragraph below describes the sixteen that preceded it.
+Thirty-six chained suites as of 2.4.0 (`npm test`; the newest are listed in the
+release sections above), plus the end-to-end `npm run uitest` of the running
+application. The paragraph below describes the sixteen that preceded 2.0.0.
 The three original ones check the circuit, the body and
 the nerve cord. Seven cover parts that had no coverage at all and where the
 bugs in the corrections log actually lived: `worldtest` (terrarium sensing
@@ -1448,8 +1487,8 @@ Current invariants (see `test/simtest.js`, `test/behaviortest.js`,
   spikes require both intact synapses and intact motor neurons; leg sensory
   feedback measurably changes real VNC spiking, not just displayed pose.
 
-All 40 checks across the three suites passed as of this document's last
-verification pass (40 PASS, 0 FAIL).
+Every suite must pass before a release; the release sections above record
+each verification pass.
 
 ## Performance (profiled, not guessed)
 
@@ -1493,23 +1532,36 @@ that `test/visiontest.js` pins.
 
 ## Known, explicit limitations
 
-- No antennal-lobe/odorant-receptor population — smell concentration is
-  real, odor identity is not. Because there is also no separate nociceptor
-  channel, touch, squeeze, jolt, wind and odour concentration all drive the
-  one real sensory population the circuit does contain, and the dashboard bar
-  for it is therefore a combined-stimulus readout, not a pain meter. It is
-  labelled and tooltipped as such ("Sensorik gesamt") rather than left
-  to imply a specificity the data cannot support — a fly sitting beside a
-  flower reads high on it, and that is odour, not distress.
+- **Senses the circuit does not contain.** There are no olfactory receptor
+  neurons, tactile bristles or nociceptors in the simulated circuits. Odour
+  concentration is computed and shown but drives no neuron; body contact is
+  telemetry; squeezing the fly is an explicit experimental stimulation of the
+  giant fiber, not a pain model. Antennal deflection (tap, rain, objects) is
+  routed only into the Johnston's-organ cells that transduce it.
+- **Learning is an opt-in experiment, not the fly's learning system.** The
+  learning mode adds a generic bounded timing rule onto the command neurons
+  and short-term depression of the looming detectors' output. Real
+  associative learning runs through the dopamine-gated mushroom body, which
+  this mode does not model. Under habituation the giant fiber's response
+  declines, but takeoffs still occur at the protocol's stimulus strength, and
+  dishabituation is not modelled.
+- **Thermal preference is not reproduced.** Temperature reaches the real
+  hot/cold cells and their relays two synapses beyond, but in the running
+  model that input does not steer her: she does not settle in the comfortable
+  zone of a gradient (`thermal-preference` protocol: no preference). No
+  temperature-to-steering rule is added by hand to make it so.
+- **Walking is modelled, the path to the muscles is measured.** Stepping rules
+  stand in for rhythm-generating interneurons the extracted cord lacks; gait
+  speed and step frequency are not calibrated (CLAUDE.md, "Gait numbers").
 - No volume-transmission/hormone-level model for dopamine, serotonin or
   octopamine — only real per-synapse signalling rate.
-- The permanently-drawn ambient synapse web is a rendering-performance
-  sample of the real edge set, not a simulation sample — every real edge is
-  always simulated regardless of what's drawn.
-- The brain/VNC coupling is a population-rate interface between two
-  different real specimens (female FlyWire brain, male MaleCNS cord) — there
-  are no literal cross-specimen synapses in the source data, by construction.
+- The ambient synapse web in the connectome view is a rendering sample of the
+  real edge set, not a simulation sample — every edge is always simulated.
+- In the mixed model the brain/VNC coupling is a population-rate interface
+  between two specimens (female FlyWire brain, male MaleCNS cord); there are
+  no cross-specimen synapses. The male and female models run brain and cord
+  of one animal each, coupled cell by cell where body IDs match.
 - JO (wind) direction tuning, campaniform/hair-plate joint-specific tuning
   beyond what MaleCNS's `sensoryKind` field distinguishes, and muscle-force
-  transduction are all modeling choices — see `data/LOCOMOTOR_PROVENANCE.md`
+  transduction are all modelling choices — see `data/LOCOMOTOR_PROVENANCE.md`
   for the full per-field provenance contract.

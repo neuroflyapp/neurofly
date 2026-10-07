@@ -29,7 +29,7 @@ import { ExperimentJournal } from './experiment-journal.js';
 import { makeExperimentManifest } from './experiment-manifest.js';
 import { plasticityChangesCSV } from './plasticity-export.js';
 import { recordingPackageJSON } from './recording-package.js';
-import { InputHistory, explain } from './causal.js';
+import { InputHistory, explain, behaviourGroup, TRACE_SHARE } from './causal.js';
 import { extractPose, poseNodes } from './pose.js';
 
 export const LEG_NAMES = ['RF', 'LF', 'RM', 'LM', 'RH', 'LH'];
@@ -57,6 +57,21 @@ const EFFERENCE_TURN_RAD_S = 0.05;
 
 // Named-circuit stimulation: the strengths/durations the behavior test suite
 // uses, so a panel button and its equivalent test do the same thing.
+// Objects the Habitat game may add to the terrarium: kinds the world itself
+// grows, at most 24, never closer to the fly than this.
+export const WORLD_EDIT_KINDS = Object.freeze(['fern', 'flower', 'berry', 'pebble', 'rock', 'mushroom', 'bush', 'stump', 'log', 'branch', 'twig']);
+export const WORLD_EDIT_MAX = 24;
+
+// The attribution source categories (sim.js SOURCES) through which an
+// activated population reaches a deciding population.
+const GENETIC_SOURCES = Object.freeze({
+  lc4: ['loomL', 'loomR'], lplc2: ['loomL', 'loomR'], loomL: ['loomL'], loomR: ['loomR'],
+  joA: ['joAuditory'], joW: ['joWind'], sugar: ['sugar'], bitter: ['bitter'],
+  tasteRelay: ['tasteRelay'], proboscisMN: ['tasteRelay'], ingestionMN: ['tasteRelay'],
+  joF: ['joF'], groomRelay: ['groomRelay'], hot: ['thermo'], cold: ['thermo'], thermoRelay: ['thermoRelay'], ascend: ['ascending'],
+});
+export const WORLD_EDIT_MIN_FLY_DISTANCE = 140;
+
 export const STIM_GROUPS = Object.freeze({
   groom: ['groom', 0.25, 600],
   walk: ['fwd', 0.25, 1200],
@@ -443,11 +458,11 @@ export class ClosedLoop {
         const channels = ['loomL', 'loomR', 'puff', 'wind', 'sound', 'sugar', 'bitter', 'dust'];
         if (!channels.includes(a.channel)) return false;
         this.bursts[a.channel] = { level: clampf(a.level ?? 0.6, 0, 1), until: this.simTime + clampf(a.durationS ?? 0.5, 0.02, 10) };
-        this.history.noteStimulation(this.simTime, a.label ?? a.channel);
+        this.history.noteStimulation(this.simTime, a.label ?? a.channel, [a.channel]);
         this.journalEvent('control-request', { control: 'burst', channel: a.channel, level: this.bursts[a.channel].level });
         return true;
       }
-      case 'stim.loom': this.loomOverride = clampf(a.strength ?? 0.6, 0, 1); this.history.noteStimulation(this.simTime, 'looming stimulus'); return true;
+      case 'stim.loom': this.loomOverride = clampf(a.strength ?? 0.6, 0, 1); this.history.noteStimulation(this.simTime, 'looming stimulus', ['loomL', 'loomR']); return true;
       case 'stim.cells': return this.stim(a.indices, a.strength ?? 0.25, a.durationMs ?? 400, a.label ?? 'brain-view stimulation');
       case 'taste.offer': {
         const d = clampf(a.durationS ?? 2, 0.1, 20);
@@ -466,7 +481,13 @@ export class ClosedLoop {
         return drop.id;
       }
       case 'food.clear': this.food = []; return true;
-      case 'antenna.dust': this.dustLoad = clampf(a.amount ?? 1, 0, 1); this.history.noteStimulation(this.simTime, 'dust on the antennae'); this.journalEvent('control-request', { control: 'antenna-dust', amount: this.dustLoad }); return true;
+      case 'world.add': return this.addWorldObject(a);
+      case 'world.remove': {
+        const ok = typeof a.tag === 'string' && this.world.removeObject(a.tag);
+        if (ok) this.journalEvent('world-edit', { action: 'remove', tag: a.tag });
+        return ok;
+      }
+      case 'antenna.dust': this.dustLoad = clampf(a.amount ?? 1, 0, 1); this.history.noteStimulation(this.simTime, 'dust on the antennae', ['dust']); this.journalEvent('control-request', { control: 'antenna-dust', amount: this.dustLoad }); return true;
       case 'body.removeLeg': return this.removeNextLeg();
       case 'body.wing': return this.cycleWingDamage();
       case 'body.freeze': return this.toggleFreeze();
@@ -625,6 +646,25 @@ export class ClosedLoop {
       fly.pos.y = clampf(fly.pos.y, -height / 2 + 40, height / 2 - 40);
     }
     this.journalEvent('arena-resize', { width, height });
+  }
+
+  // ---- the world's objects: additions from the Habitat game's garden -----------------------
+  // One of the world's own object kinds, never on top of the fly: a new object
+  // appearing right in front of her eye would be a looming stimulus.
+  addWorldObject({ kind, x, y, seed, radius, tag, minFlyDistance = WORLD_EDIT_MIN_FLY_DISTANCE }) {
+    if (!WORLD_EDIT_KINDS.includes(kind) || !Number.isFinite(x) || !Number.isFinite(y) || typeof tag !== 'string'
+      || !/^[a-z0-9-]{1,40}$/.test(tag) || this.world.objects.some((o) => o.tag === tag)) return { ok: false, reason: 'invalid' };
+    if (this.world.objects.filter((o) => o.tag).length >= WORLD_EDIT_MAX) return { ok: false, reason: 'full' };
+    const r = clampf(Number.isFinite(radius) ? radius : 14, 6, 34);
+    const hw = this.bounds.width / 2 - 60, hh = this.bounds.height / 2 - 60;
+    const px = clampf(x, -hw, hw), py = clampf(y, -hh, hh);
+    const fly = this.fly;
+    const near = Math.max(r + 15, clampf(minFlyDistance, 40, WORLD_EDIT_MIN_FLY_DISTANCE));
+    if (fly && Math.hypot(fly.pos.x - px, fly.pos.y - py) < near) return { ok: false, reason: 'near' };
+    const o = this.world.addObject({ kind, x: px, y: py, seed: (Number(seed) >>> 0) || 1, radius: r, tag });
+    if (!o) return { ok: false, reason: 'invalid' };
+    this.journalEvent('world-edit', { action: 'add', kind, x: px, y: py, radius: r, tag });
+    return { ok: true, rev: this.world.rev };
   }
 
   // ---- pointer, taps and dragging ------------------------------------------------------------
@@ -1058,7 +1098,24 @@ export class ClosedLoop {
     if (this.simTime - last < 1.2) return;
     this._eventCooldown[kind] = this.simTime;
     const e = explain(kind, { sim: this.sim, now: this.simTime, history: this.history, rates: this.sim.rates(), extra });
+    if (e && !e.trigger) e.trigger = this._geneticTrigger(kind, e);
     if (e) this._emit(e);
+  }
+
+  // Behaviour driven by virtual genetics (an opsin or TrpA1 line activating a
+  // population): named as the trigger when the activated population is the
+  // deciding one, or delivers a traced share of its excitation. Before, such
+  // behaviour read "no external trigger".
+  _geneticTrigger(kind, e) {
+    const group = behaviourGroup(kind);
+    for (const g of this.genetics) {
+      if (g.mode !== 'activate') continue;
+      const own = g.population === group || (g.population === 'proboscisMN' && group === 'proboscis');
+      const sources = GENETIC_SOURCES[g.population] ?? [];
+      const feeds = (e.inputs ?? []).some((x) => sources.includes(x.source) && x.share >= TRACE_SHARE);
+      if (own || feeds) return { channel: 'genetics', label: g.label, source: 'experimenter', peak: 1, sustained: true, latencyMs: null };
+    }
+    return null;
   }
 
   _detectEvents(signals, escapeNow) {
@@ -1286,6 +1343,7 @@ export class ClosedLoop {
     };
     const out = {
       t: this.simTime, neuralMs: sim.simMs, seed: sim.neuralSeed, neuralRun: this.neuralRun, individual: this.individual,
+      worldRev: this.world.rev,
       paused: this.paused, speed: this.speed, dead: this.dead, health: this.health, n: sim.n,
       fly: { x: fly.pos.x, y: fly.pos.y, z: fly.node.position.z || 0, heading: fly.heading, state: fly.state,
         groomMode: fly.groomMode, alt: fly.alt, speed: fly.speed, proboscis: fly.proboscisExtension, onFood: fly.onFood,

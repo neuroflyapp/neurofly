@@ -526,11 +526,11 @@ export const PROTOCOLS = [
     id: 'associative', category: 'Learning', icon: 'link',
     title: 'Associative pairing',
     question: 'Pair a weak visual threat with a giant-fiber spike 16 times. Does the weak threat alone then drive the giant fiber harder — more than after the same stimuli in reverse order?',
-    measures: 'Giant-fiber response to a weak loom before and after training, with the experimental timing rule; paired order versus reversed-order control, several individuals each.',
+    measures: 'Giant-fiber response to a weak loom before and after training (after a retention interval in which short-term effects decay), with the experimental learning mode; paired order versus reversed-order control, several individuals each.',
     literature: [{ ...LITERATURE.ueno2017, finding: 'Associative learning in flies happens in the mushroom body and is dopamine-gated — not the generic timing rule tested here.' },
       { ...LITERATURE.gibbons2022, finding: 'Associative learning is one of the eight sentience criteria (very high confidence for adult flies).' }],
-    defaults: { trials: 4 },
-    estimateSeconds: (p) => 2 * p.trials * 22,
+    defaults: { trials: 8 },   // 4 pairs reach p < 0.05 only by perfect separation
+    estimateSeconds: (p) => 2 * p.trials * 26,
     *run(rig, p, nextSeed) {
       const rows = [];
       let done = 0;
@@ -551,10 +551,17 @@ export const PROTOCOLS = [
         for (let i = 0; i < p.trials; i++) {
           rig.respawn({ seed: nextSeed(), plasticity: true });
           rig.resetTrial(nextSeed());
-          rig.run(0.5);
+          rig.run(1.5);
           const pre = test();
+          // Short-term effects of the test (afferent depression) decay before
+          // training and again before the retention test, as in a memory
+          // assay; what the timing rule learned is kept (resetTrial keeps it).
+          rig.resetTrial(nextSeed());
+          rig.run(1.5);
           rig.startLearning(order);
           rig.run(2.4);
+          rig.resetTrial(nextSeed());
+          rig.run(1.5);
           const post = test();
           rows.push({ group: order === 'pre-before-post' ? 'paired' : 'reversed', individual: i + 1, pre, post,
             index: (post - pre) / Math.max(1, post + pre), updates: rig.sim.plasticitySummary().updates });

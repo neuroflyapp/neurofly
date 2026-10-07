@@ -146,7 +146,8 @@ export function mapColor(g, out, o) {
 }
 
 export class TerrariumView {
-  constructor(container, { layout, onPointer, onCommand, onVision, onTap, minArenaSide = 0 }) {
+  constructor(container, { layout, onPointer, onCommand, onVision, onTap, requestLayout = null, minArenaSide = 0 }) {
+    this.requestLayout = requestLayout;   // () => Promise<layout>: the simulation's world after it added or removed objects
     this.container = container;
     this.onPointer = onPointer;
     this.onCommand = onCommand;
@@ -351,6 +352,22 @@ export class TerrariumView {
     ring.position.z = 0.4;
     this.scentGroup.add(glow, ring);
     this.scene.add(this.scentGroup);
+    // Where she is, for the observer: in the wide views her body is a few
+    // pixels, so a thin ring marks the floor under her. Display layer only:
+    // her eye never sees it.
+    this.locator = new THREE.Mesh(new THREE.RingGeometry(24, 27, 48),
+      new THREE.MeshBasicMaterial({ color: 0x00ff41, transparent: true, opacity: 0.45, side: THREE.DoubleSide, depthWrite: false }));
+    this.locator.layers.set(DISPLAY_LAYER);
+    this.locator.visible = false;
+    this.scene.add(this.locator);
+    // Placing an object (the Habitat game's garden): a ring under the pointer,
+    // green where it may go. Display layer only.
+    this.placeRing = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 48),
+      new THREE.MeshBasicMaterial({ color: 0x00ff41, transparent: true, opacity: 0.75, side: THREE.DoubleSide, depthWrite: false }));
+    this.placeRing.layers.set(DISPLAY_LAYER);
+    this.placeRing.visible = false;
+    this.scene.add(this.placeRing);
+    this.placement = null;
   }
 
   _resetDrop(i) {
@@ -473,7 +490,12 @@ export class TerrariumView {
 
   toggleCameraMode() {
     const i = CAMERA_MODES.indexOf(this.cameraMode);
-    this.cameraMode = CAMERA_MODES[(i + 1) % CAMERA_MODES.length];
+    return this.setCameraMode(CAMERA_MODES[(i + 1) % CAMERA_MODES.length]);
+  }
+
+  setCameraMode(mode) {
+    if (!CAMERA_MODES.includes(mode)) return this.cameraMode;
+    this.cameraMode = mode;
     this._applyFov();
     return this.cameraMode;
   }
@@ -631,7 +653,16 @@ export class TerrariumView {
       this.scene.remove(v.model.root);
     }
     snap.poses.forEach((pose, i) => applyPose(this.flyViews[i].model, pose, this.flyViews[i].nodes));
-    this.world.applyState(snap.objects);
+    // After the simulation added or removed an object the packed positions no
+    // longer line up by index: keep the objects still until the new layout is
+    // here (a jump would reach her eye as motion).
+    if (snap.worldRev !== undefined && snap.worldRev !== this.world.rev) {
+      if (!this.layoutPending && this.requestLayout) {
+        this.layoutPending = true;
+        Promise.resolve(this.requestLayout()).then((layout) => { if (layout) this.world.replaceObjects(layout); })
+          .catch(() => {}).finally(() => { this.layoutPending = false; });
+      }
+    } else this.world.applyState(snap.objects);
     const env = snap.env;
     this.rainPoints.visible = env.rain || env.iceRain;
     this.rainPoints.material.color.setHex(env.iceRain ? 0xdff3ff : 0xbfe0ff);
@@ -700,6 +731,9 @@ export class TerrariumView {
       shown.right += (want.right - shown.right) * k;
       this._applyViewOffset();
     }
+    const f = this.snap?.fly;
+    this.locator.visible = Boolean(f) && !this.snap?.dead && (this.cameraMode === 'overview' || this.cameraMode === 'overhead');
+    if (this.locator.visible) this.locator.position.set(f.x, f.y, 0.5);
     if (display) { this._lookFor('display'); this._displayAtmosphere(); this.world.animateDisplay(tSeconds); this.renderer.render(this.scene, this.camera); }
     // Her eye samples every EYE_SAMPLE_S of simulated time: the change
     // between two samples (her visual input) must not depend on how fast
@@ -752,6 +786,19 @@ export class TerrariumView {
     this._displayAtmosphere();
     this.renderer.render(this.scene, this.camera);
     return this.renderer.domElement.toDataURL('image/png');
+  }
+
+  // A photo (the Habitat game): the display view at a higher resolution,
+  // without the observer's rings. The drawing buffer returns to its size.
+  capturePhotoPNG(ratio = 2) {
+    const before = this.renderer.getPixelRatio();
+    const hidden = [this.locator, this.placeRing].filter((m) => m?.visible);
+    for (const m of hidden) m.visible = false;
+    this.renderer.setPixelRatio(Math.max(before, ratio));
+    const url = this.capturePNG();
+    this.renderer.setPixelRatio(before);
+    for (const m of hidden) m.visible = true;
+    return url;
   }
 
   _animateWeather(dt, t) {
@@ -967,6 +1014,10 @@ export class TerrariumView {
       }
       if (e.button !== 0) return;
       const p = this.projectToGround(e.clientX, e.clientY);
+      if (this.placement) {
+        if (p) this.placement.onPlace(p);
+        return;
+      }
       this.downPoint = p;
       if (!p || !this.snap) return;
       el.setPointerCapture(e.pointerId);
@@ -1036,6 +1087,7 @@ export class TerrariumView {
       }
       const p = inside || this.drag ? this.projectToGround(e.clientX, e.clientY) : null;
       this.onPointer?.(p);
+      if (this.placement) this._movePlaceRing(p);
       if (this.drag && p) {
         if (this.drag.kind === 'object') {
           const o = this.world.objects[this.drag.id];
@@ -1094,6 +1146,23 @@ export class TerrariumView {
   setPixelRatio(r) {
     if (Math.abs(r - this.renderer.getPixelRatio()) < 0.001) return;
     this.renderer.setPixelRatio(r);
+  }
+
+  // Placement mode: { radius, minFlyDistance, onPlace(p) }, or null to end it.
+  setPlacement(placement) {
+    this.placement = placement;
+    this.placeRing.visible = false;
+    this.renderer.domElement.style.cursor = placement ? 'crosshair' : '';
+  }
+
+  _movePlaceRing(p) {
+    if (!p || !this.placement) { this.placeRing.visible = false; return; }
+    const f = this.snap?.fly;
+    const ok = !f || Math.hypot(f.x - p.x, f.y - p.y) >= this.placement.minFlyDistance;
+    this.placeRing.material.color.setHex(ok ? 0x00ff41 : 0xff5a6e);
+    this.placeRing.scale.setScalar(this.placement.radius);
+    this.placeRing.position.set(p.x, p.y, 0.6);
+    this.placeRing.visible = true;
   }
 
   // head position of the brain-carrying fly on screen, for anchoring labels

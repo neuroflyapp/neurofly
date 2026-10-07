@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, readdir, unlink, rmdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { atomicWriteFile, createSaveService } from '../src/save-io.js';
+import { atomicWriteFile, createSaveService, pngFromDataURL } from '../src/save-io.js';
 
 let checks = 0;
 async function check(name, test) {
@@ -34,6 +34,21 @@ function fixture(overrides = {}) {
   });
   return { calls, window, save };
 }
+
+await check('a photo is a PNG from the page, written as bytes where the user chooses', async () => {
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32, 7)]);
+  const { save, calls } = fixture();
+  const ok = await save('photo', `data:image/png;base64,${png.toString('base64')}`);
+  assert.equal(ok.ok, true);
+  const write = calls.find((c) => Array.isArray(c) && c[0] === 'write');
+  assert.ok(Buffer.isBuffer(write[2]) && write[2].equals(png));
+  assert.match(calls.find((c) => Array.isArray(c) && c[0] === 'dialog')[1].defaultPath, /^neurocause-habitat-.*\.png$/);
+  for (const bad of ['plain text', 'data:image/jpeg;base64,AAAA', `data:image/png;base64,${Buffer.from('not a png at all, really').toString('base64')}`, null]) {
+    const r = await fixture().save('photo', bad);
+    assert.deepEqual(r, { ok: false, reason: 'not-a-png' });
+  }
+  assert.equal(pngFromDataURL(`data:image/png;base64,${png.toString('base64')}`, 10), null, 'over the size cap');
+});
 
 await check('text exports use the selected destination and their own file type', async () => {
   for (const [kind, extension] of [['recording', 'csv'], ['learning', 'csv'], ['manifest', 'json'], ['experiment', 'json']]) {

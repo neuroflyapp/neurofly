@@ -20,6 +20,7 @@ export const MALE = {
   "Bitter at her mouthparts": ["Bitter at his mouthparts", "Bitterstoff an seinen Mundwerkzeugen"],
   "Dust on her antennae": ["Dust on his antennae", "Staub auf seinen Fühlern"],
   "You stimulated her neurons": ["You stimulated his neurons", "Du hast seine Neuronen stimuliert"],
+  "Virtual genetics activated her neurons": ["Virtual genetics activated his neurons", "Virtuelle Genetik hat seine Neuronen aktiviert"],
   "motion in her own eye": ["motion in his own eye", "Bewegung im eigenen Auge"],
   "Why did she do that?": ["Why did he do that?", "Warum hat er das getan?"],
   "Her survival budget reached zero. Her network receives no input from here on.": [

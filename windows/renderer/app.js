@@ -21,6 +21,7 @@ import { sentiencePanel } from './ui/panel-sentience.js';
 import { dataPanel } from './ui/panel-data.js';
 import { modelPanel } from './ui/panel-model.js';
 import { specimensPanel } from './ui/panel-specimens.js';
+import { habitatPanel } from './ui/panel-habitat.js';
 import { AdaptiveRenderQuality, DisplayPacer } from '../src/performance.js';
 import { createWebApi } from './platform/web-api.js';
 import { setupMobile, wantsMobileLayout } from './ui/mobile.js';
@@ -92,7 +93,7 @@ api.attach?.(ctx);
 // With NEUROFLY_DEBUG=1 the context is reachable from the dev tools.
 if (new URLSearchParams(location.search).get('debug') === '1') window.__nf = Object.assign(ctx, { untranslated });
 
-const panels = [livePanel, stimulatePanel, circuitPanel, experimentsPanel, sentiencePanel, dataPanel, modelPanel, specimensPanel];
+const panels = [livePanel, stimulatePanel, circuitPanel, experimentsPanel, sentiencePanel, dataPanel, modelPanel, specimensPanel, habitatPanel];
 
 (async () => {
   // Start-up phases in milliseconds since the page's own start, kept for
@@ -148,6 +149,7 @@ const panels = [livePanel, stimulatePanel, circuitPanel, experimentsPanel, senti
     onCommand: (name, args) => client.command(name, args),
     onVision: (v) => client.input({ vision: v }),
     onTap: (p) => client.command('tap', p),
+    requestLayout: () => client.request('layout'),
     minArenaSide: minArena(),
   });
   ctx.views.brain = new BrainView(document.getElementById('brain'), {

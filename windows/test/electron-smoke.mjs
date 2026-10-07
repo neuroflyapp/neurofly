@@ -140,6 +140,11 @@ async function run(win) {
   'all four terrarium cameras have correct labels, zoom and reset',
   `${cameraModes.result.map((x) => `${x.mode}:${x.label}`).join(', ')}; reset=${cameraModes.resetMode}/${cameraModes.resetZoom}`);
 
+  const directCamera=await js(win,`const v=__nf.views.terrarium;const out=[];
+    for(const mode of ['close','overhead','follow','overview']){document.querySelector('[data-camera-mode="'+mode+'"]').click();out.push(v.cameraMode===mode);}
+    v.setCameraMode('invalid');return out.every(Boolean)&&v.cameraMode==='overview';`);
+  report(directCamera,'direct camera presets select all four observer views and reject unknown modes',String(directCamera));
+
   // The real eye pass must be byte-identical when only observer controls
   // change. Freeze the worker and the view animation, drain old eye reads,
   // then use _renderEye itself. Suppressing _processEye during these manual
@@ -267,6 +272,33 @@ async function run(win) {
     await sleep(400);
     await shot(win, `workspace-${i + 1}`);
     report(!!text && specimens && pageErrors.length === errorsBefore, `workspace ${i + 1} mounts`, text ? `"${text}…"` : 'empty panel');
+    // Nothing in the workspace column is wider than the column: a label that
+    // cannot wrap pushed buttons out of view (German pharmacology presets).
+    const overflow = await js(win, `const box = document.getElementById('panel'); const right = box.getBoundingClientRect().right;
+      const wide = [...box.querySelectorAll('*')].filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.right > right + 1; });
+      return { scroll: box.scrollWidth - box.clientWidth, first: wide[0] ? (wide[0].textContent || wide[0].tagName).trim().slice(0, 40) : null };`);
+    report(overflow.scroll <= 0 && !overflow.first, `workspace ${i + 1} fits its column`,
+      overflow.first ? `"${overflow.first}" sticks out (${overflow.scroll} px)` : 'nothing wider than the panel');
+    if (i === 8) {
+      // The Habitat game plays with the live fly: its Feed button puts a real
+      // drop into the simulation, its layer sits over the terrarium, and
+      // every tab builds.
+      const game = await js(win, `const food0 = __nf.snap.food.length;
+        const feed = [...document.querySelectorAll('#panel .hab-act')][0];
+        feed.click();
+        await new Promise((r) => setTimeout(r, 900));
+        const tabs = [];
+        for (const tab of document.querySelectorAll('#panel .hab-tab')) {
+          tab.click();
+          await new Promise((r) => setTimeout(r, 300));
+          tabs.push(document.querySelector('#panel .hab-tab-body').children.length);
+        }
+        document.querySelector('#panel .hab-tab').click();
+        return { gauges: document.querySelectorAll('#panel .hab-gauge').length, overlay: !!document.querySelector('#terrarium .hab-overlay'),
+          food: __nf.snap.food.length - food0, tabs, name: document.querySelector('#panel .hab-name')?.textContent };`);
+      report(game.gauges === 4 && game.overlay && game.food === 1 && game.tabs.length === 5 && game.tabs.every((n) => n > 0) && pageErrors.length === errorsBefore,
+        'Habitat game: care gauges, terrarium layer, Feed drops real sugar, all five tabs build', JSON.stringify(game));
+    }
     if (i === 6) {
       const timing = await js(win, `const s = document.querySelector('#panel .timing-status'); return { state: s?.dataset.state, rows: document.querySelectorAll('#panel .timing-status ~ .kv dd').length, message: s?.textContent };`);
       report(['paused', 'gap', 'measuring', 'behind', 'on-pace'].includes(timing.state)

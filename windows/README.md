@@ -1,6 +1,6 @@
 # NeuroCause for Windows
 
-Release 2.4.0. A 3D fruit fly in her own terrarium, driven by a 1 kHz
+Release 2.5.0. A 3D fruit fly in her own terrarium, driven by a 1 kHz
 leaky-integrate-and-fire **model** over measured FlyWire FAFB v783 wiring —
 7,270 brain neurons and 784,219 signed synapse-count connections: the
 6,338-neuron escape/steering subgraph (338 command/sensory neurons plus their

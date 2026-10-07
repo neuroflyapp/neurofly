@@ -4,7 +4,7 @@ import { h, icon } from './dom.js';
 import { t, num } from '../i18n.js';
 import { panelHead, card, action, meter, slider, check, tag, setText } from './widgets.js';
 import { behaviourOf } from './labels.js';
-import { mapColor } from '../view/terrarium.js';
+import { mapColor, cameraModeLabel } from '../view/terrarium.js';
 
 const MAP_FIELDS = [
   ['occupancy', 'Time spent'], ['fear', 'Giant fiber (escape alarm)'], ['loom', 'Looming detectors'],
@@ -67,8 +67,11 @@ export const livePanel = {
         ctx.save('saveRecording', csv, t('Map saved.'));
       } }, icon('download', 14), t('Export CSV')),
       h('button', { class: 'btn small ghost', type: 'button', onclick: () => ctx.command('map.reset') }, t('Reset')));
+    const cameraButtons=['overview','follow','close','overhead'].map(mode=>h('button',{
+      type:'button',class:'btn','data-camera-mode':mode,'aria-pressed':String(ctx.views.terrarium.cameraMode===mode),
+      onclick:()=>ctx.views.terrarium.setCameraMode(mode)},t(cameraModeLabel(mode))));
     const view = card(t('View'), { tagEl: tag('observer') },
-      bright.el, night.el, mapToggle.el, h('div', { class: 'field' }, mapSelect), h('div', { class: 'field' }, legend), mapInfo, h('div', { class: 'field' }, mapButtons));
+      h('div',{class:'grid2 camera-presets'},...cameraButtons),bright.el, night.el, mapToggle.el, h('div', { class: 'field' }, mapSelect), h('div', { class: 'field' }, legend), mapInfo, h('div', { class: 'field' }, mapButtons));
 
     const counts = { n: ctx.data.circuit.neurons.length.toLocaleString(), m: (ctx.data.locomotor?.neurons?.length ?? 0).toLocaleString() };
     const heading = {
@@ -83,6 +86,7 @@ export const livePanel = {
     return {
       el,
       update(snap) {
+        for(const button of cameraButtons){const value=String(button.dataset.cameraMode===ctx.views.terrarium.cameraMode);if(button.getAttribute('aria-pressed')!==value)button.setAttribute('aria-pressed',value);}
         const b = behaviourOf(snap);
         if (glyph.dataset.icon !== b.icon) { glyph.dataset.icon = b.icon; glyph.replaceChildren(icon(b.icon, 22)); }
         setText(stateName, b.label);

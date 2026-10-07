@@ -85,7 +85,7 @@ export function buildInspector(ctx) {
         ? `, ${e.trigger.latencyMs <= 8 ? t('within the same 8 ms step') : t('{ms} ms earlier', { ms: e.trigger.latencyMs })}` : '';
       trig = `${base}${src}${when}.`;
     }
-    steps.push(h('div', { class: 'step' }, h('div', { class: 'k' }, t('Trigger'), h('span', { class: 'tag' }, e.trigger?.channel === 'stim' ? t('you') : t('input'))), h('div', { class: 'v' }, trig),
+    steps.push(h('div', { class: 'step' }, h('div', { class: 'k' }, t('Trigger'), h('span', { class: 'tag' }, e.trigger?.channel === 'stim' || e.trigger?.channel === 'genetics' ? t('you') : t('input'))), h('div', { class: 'v' }, trig),
       along.length ? h('div', { class: 'note' }, t('Together with: {list} — its receptors also fed the deciding neurons.', { list: along.join(', ') })) : null,
       others.length ? h('div', { class: 'note' }, t('Also present at the time: {list}. Any influence it had ran through central neurons and is not traced here, so it is not named as the cause.', { list: others.join(', ') })) : null));
     // 2 sensory
@@ -171,7 +171,15 @@ export function buildInspector(ctx) {
   };
 
   let legendT = 0;
+  let shownIndividual = null;
   ctx.onFrame((snap) => {
+    // A new fly is a different animal: her predecessor's behaviour is not
+    // hers to explain, so the list starts empty again.
+    if (snap.individual !== shownIndividual) {
+      const first = shownIndividual === null;
+      shownIndividual = snap.individual;
+      if (!first && events.length) { events.length = 0; openId = null; ctx.highlight(null); renderEvents(); }
+    }
     if (snap.events.length) {
       for (const e of snap.events) { e._id = ++seq; events.push(e); }
       while (events.length > 40) events.shift();

@@ -12,7 +12,7 @@
 import { h, icon } from './dom.js';
 import { t, getLanguage } from '../i18n.js';
 
-const PRIMARY = ['live', 'stimulate'];
+const PRIMARY = ['live', 'habitat', 'stimulate'];   // the game sits next to the live view on a phone
 // A window this narrow (or this low, with a touch screen) gets the phone layout.
 export function wantsMobileLayout() {
   const coarse = matchMedia('(pointer: coarse)').matches;

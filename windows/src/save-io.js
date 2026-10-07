@@ -11,7 +11,20 @@ const EXPORTS = {
   learning: { title: 'Lernspur speichern', stem: 'neurocause-learning', name: 'CSV', extension: 'csv', maxBytes: MAX_RECORDING_BYTES },
   manifest: { title: 'Versuchsmanifest speichern', stem: 'neurocause-manifest', name: 'JSON', extension: 'json', maxBytes: 1024 * 1024 },
   snapshot: { title: 'Snapshot speichern', stem: 'neurocause', name: 'PNG-Bild', extension: 'png' },
+  photo: { title: 'Foto speichern', stem: 'neurocause-habitat', name: 'PNG-Bild', extension: 'png', maxBytes: 16 * 1024 * 1024 },
 };
+
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+// A picture composed by the page (the Habitat game's photo): a PNG data URL,
+// nothing else. Returns the bytes, or null.
+export function pngFromDataURL(url, maxBytes) {
+  const prefix = 'data:image/png;base64,';
+  if (typeof url !== 'string' || !url.startsWith(prefix) || url.length > prefix.length + Math.ceil(maxBytes / 3) * 4) return null;
+  const bytes = Buffer.from(url.slice(prefix.length), 'base64');
+  if (bytes.length < 16 || bytes.length > maxBytes || !bytes.subarray(0, 8).equals(PNG_SIGNATURE)) return null;
+  return bytes;
+}
 
 // Stage in the selected file's directory, then replace atomically. A full disk,
 // interrupted write or failed rename must not truncate the user's existing file.
@@ -40,7 +53,10 @@ export function createSaveService({ getWindow, showSaveDialog, writeFile = atomi
     const spec = EXPORTS[kind];
     if (!spec) return { ok: false, reason: 'unsupported-export' };
     if (busy) return { ok: false, reason: 'busy' };
-    if (kind !== 'snapshot') {
+    if (kind === 'photo') {
+      content = pngFromDataURL(content, spec.maxBytes);
+      if (!content) return { ok: false, reason: 'not-a-png' };
+    } else if (kind !== 'snapshot') {
       if (typeof content !== 'string' || content.length === 0) return { ok: false, reason: 'empty' };
       if (Buffer.byteLength(content, 'utf8') > spec.maxBytes) return { ok: false, reason: 'too-large' };
     }

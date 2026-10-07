@@ -42,6 +42,7 @@ contextBridge.exposeInMainWorld('flyAPI', {
   // Captures before the dialog opens. Main owns the dialog and destination;
   // the renderer only receives the selected path after a successful save.
   saveSnapshot: () => ipcRenderer.invoke('save-snapshot'),
+  savePhoto: (dataUrl) => ipcRenderer.invoke('save-photo', dataUrl),
   // Opens a literature link in the default browser; main accepts only https
   // links to a fixed list of scientific hosts.
   openExternal: (url) => ipcRenderer.invoke('open-external', url),

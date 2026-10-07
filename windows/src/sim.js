@@ -49,10 +49,17 @@ function makePlasticityConfig(config = {}) {
   };
   return {
     enabled: config?.enabled === true,
-    mechanism: 'bounded-pair-stdp',
+    mechanism: 'bounded-pair-stdp + afferent short-term depression',
     tauMs: bounded(config?.tauMs, 20, 5, 100),
     learningRate: bounded(config?.learningRate, 0.002, 0.00001, 0.05),
     maxRelativeChange: bounded(config?.maxRelativeChange, 0.25, 0.01, 1),
+    // Short-term depression of the looming detectors' output (LC4/LPLC2):
+    // the fraction of transmission resources each spike uses, and how fast
+    // they recover. A modelled stand-in for the decline that real flies show
+    // in the giant fiber's afferent pathway when a threat repeats (Engel &
+    // Wu 1996); the values are modelling choices, not measurements.
+    depressionUse: bounded(config?.depressionUse, 0.02, 0, 0.5),
+    depressionRecoveryMs: bounded(config?.depressionRecoveryMs, 8000, 100, 120000),
     eligibleEdges: 0,
     updates: 0,
     potentiations: 0,
@@ -865,6 +872,44 @@ export class LIFSim {
     }
     this.lastSpikeMs = new Int32Array(this.n);
     this.lastSpikeMs.fill(-1000000);
+    // Afferent short-term depression (see makePlasticityConfig): one resource
+    // level per looming detector of the core circuit.
+    if (p.depressionUse > 0) {
+      this.depressible = new Uint8Array(this.n);
+      for (let i = 0; i < this.n; i++) {
+        const role = this.roles[i];
+        if ((role === 'lc4' || role === 'lplc2') && this.extCode[i] === EXT.CORE) this.depressible[i] = 1;
+      }
+      this.depressRes = new Float64Array(this.n).fill(1);
+      this.depressLastMs = new Float64Array(this.n).fill(-1);
+    }
+  }
+
+  // A spike of a depressing neuron transmits at the resources it finds, after
+  // their exponential recovery since its last spike, and uses a fraction of
+  // them.
+  _useDepression(i) {
+    const p = this.plasticity;
+    let r = this.depressRes[i];
+    const last = this.depressLastMs[i];
+    if (r < 1 && last >= 0) r = 1 - (1 - r) * Math.exp(-(this.simMs - last) / p.depressionRecoveryMs);
+    this.depressRes[i] = r * (1 - p.depressionUse);
+    this.depressLastMs[i] = this.simMs;
+    return r;
+  }
+
+  // Mean transmission resources of the looming detectors now (1 = rested),
+  // or null when the depression is off.
+  afferentResources() {
+    if (!this.depressRes) return null;
+    let sum = 0, count = 0;
+    for (let i = 0; i < this.n; i++) {
+      if (!this.depressible[i]) continue;
+      const r = this.depressRes[i], last = this.depressLastMs[i];
+      sum += r < 1 && last >= 0 ? 1 - (1 - r) * Math.exp(-(this.simMs - last) / this.plasticity.depressionRecoveryMs) : r;
+      count++;
+    }
+    return count ? sum / count : null;
   }
 
   plasticitySummary() {
@@ -876,6 +921,9 @@ export class LIFSim {
       tauMs: p.tauMs,
       learningRate: p.learningRate,
       maxRelativeChange: p.maxRelativeChange,
+      depressionUse: p.depressionUse,
+      depressionRecoveryMs: p.depressionRecoveryMs,
+      afferentResources: this.afferentResources(),
       eligibleEdges: p.eligibleEdges,
       updates: p.updates,
       potentiations: p.potentiations,
@@ -1100,6 +1148,8 @@ export class LIFSim {
     this.attribExc.fill(0); this.attribInh.fill(0); this.attribSpikes.fill(0);
     this.pendingStims = []; this.activeStims = []; this.scheduledStims = [];
     this.gfLatch = false;
+    // Short-term depression is a state of the trial, not of the animal.
+    if (this.depressRes) { this.depressRes.fill(1); this.depressLastMs.fill(-1); }
     this.burstUntil = 0; this.burstNext = this.simMs + 12000;
     if (this.locomotor) this.locomotor.reset();
     this.loomL = 0; this.loomR = 0; this.airPuff = 0; this.windDrive = 0; this.soundDrive = 0;
@@ -1133,6 +1183,7 @@ export class LIFSim {
     const popCode = this.popCode, srcCat = this.srcCat, slotWatch = this.slotWatch, watchOf = this.watchOf;
     const aExc = this.attribExc, aInh = this.attribInh, aSpk = this.attribSpikes;
     const popRate = this.popRate, popGain = this.popGain, popCount = this._popCount;
+    const depressible = this.depressible ?? null;
     const sensoryGate = this.sensoryGate;
     const loomL = this.loomL, loomR = this.loomR, airPuff = this.airPuff;
     const windDrive = this.windDrive, soundDrive = this.soundDrive;
@@ -1342,20 +1393,31 @@ export class LIFSim {
         const start = rowStart[i], mid = rowInhStart[i], end = rowStart[i + 1];
         cDA += daOutgoingCount[i];
         cMod += modOutgoingCount[i];
+        // A depressing looming detector (learning mode only) transmits at its
+        // remaining resources; every other neuron at full efficacy.
+        const f = depressible !== null && depressible[i] === 1 ? this._useDepression(i) : 1;
         // excitatory slots act now, inhibitory ones after the synaptic delay
-        for (let k = start; k < mid; k++) {
-          const j = colIdx[k];
-          const nv = v[j] + w[k];
-          v[j] = nv < -2 ? -2 : nv;
+        if (f === 1) {
+          for (let k = start; k < mid; k++) {
+            const j = colIdx[k];
+            const nv = v[j] + w[k];
+            v[j] = nv < -2 ? -2 : nv;
+          }
+        } else {
+          for (let k = start; k < mid; k++) {
+            const j = colIdx[k];
+            const nv = v[j] + w[k] * f;
+            v[j] = nv < -2 ? -2 : nv;
+          }
         }
         for (let k = mid; k < end; k++) {
-          const j = colIdx[k], wk = w[k];
+          const j = colIdx[k], wk = w[k] * f;
           if (wk < 0) { if (inh[j] === 0) inhD[inhN++] = j; inh[j] += wk; }
           else if (v[j] < -2) v[j] = -2;   // blocked (0): delivered like any zero weight
         }
         const cat = srcCat[i];
         for (let x = watchRowStart[i], xe = watchRowStart[i + 1]; x < xe; x++) {
-          const k = watchSlots[x], wk = w[k];
+          const k = watchSlots[x], wk = w[k] * f;
           const o = (ringBase + slotWatch[k] - 1) * C + cat;
           if (wk >= 0) aExc[o] += wk; else aInh[o] += wk;
         }

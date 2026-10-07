@@ -23,6 +23,7 @@ const EXPORTS = {
   saveLearningRecord: { stem: 'neurocause-learning', extension: 'csv', type: 'text/csv', maxBytes: 64 * 1024 * 1024 },
   saveManifest: { stem: 'neurocause-manifest', extension: 'json', type: 'application/json', maxBytes: 1024 * 1024 },
   saveSnapshot: { stem: 'neurocause', extension: 'png', type: 'image/png' },
+  savePhoto: { stem: 'neurocause-habitat', extension: 'png', type: 'image/png', maxBytes: 16 * 1024 * 1024 },
 };
 
 // Capacitor's native plugins, when the page runs inside the Android app.
@@ -86,7 +87,11 @@ export function createWebApi() {
     const spec = EXPORTS[kind];
     if (!spec) return { ok: false, reason: 'unsupported-export' };
     let bytes = null, text = null;
-    if (kind === 'saveSnapshot') {
+    if (kind === 'savePhoto') {
+      if (typeof content !== 'string' || !content.startsWith('data:image/png;base64,')) return { ok: false, reason: 'not-a-png' };
+      bytes = Uint8Array.from(atob(content.slice(content.indexOf(',') + 1)), (c) => c.charCodeAt(0));
+      if (bytes.length > spec.maxBytes) return { ok: false, reason: 'too-large' };
+    } else if (kind === 'saveSnapshot') {
       const url = ctx?.capturePicture?.();
       if (!url) return { ok: false, reason: 'empty-snapshot' };
       bytes = Uint8Array.from(atob(url.slice(url.indexOf(',') + 1)), (c) => c.charCodeAt(0));
@@ -209,6 +214,7 @@ export function createWebApi() {
     saveLearningRecord: (csv) => deliver('saveLearningRecord', csv),
     saveManifest: (json) => deliver('saveManifest', json),
     saveSnapshot: () => deliver('saveSnapshot'),
+    savePhoto: (dataUrl) => deliver('savePhoto', dataUrl),
 
     async openExternal(url) {
       let u;

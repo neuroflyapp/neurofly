@@ -48,6 +48,14 @@ a stimulus arrives is decided by measured wiring, not by a script.
   reproducible from their seed.
 - **Record everything.** 20 Hz CSV of every population rate, input and body
   state; run manifests with seeds, interventions and data fingerprints.
+- **Play the Habitat.** A care and discovery game whose pet is the simulated
+  fly itself: feed it (its taste circuit decides whether it drinks), collect
+  every behaviour and neuron with the cells that decided it and their measured
+  wiring, cross GAL4 driver and UAS effector lines whose offspring run with
+  that genotype (silence the giant fiber, switch grooming on with red light,
+  start a moonwalk with warmth), shape the terrarium, take photos, and work
+  through the eight sentience criteria. Care values and ranks are game rules
+  and are labelled as such; everything the fly does is the simulation.
 
 ## What this is not
 

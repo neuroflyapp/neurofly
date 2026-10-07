@@ -56,6 +56,7 @@ export const TRIGGER_INFO = {
   wind: 'Steady wind', sound: 'Sound nearby', hot: 'Warming', cold: 'Cooling', sugar: 'Sugar at her mouthparts',
   bitter: 'Bitter at her mouthparts', dust: 'Dust on her antennae',
   antennaContact: 'Modelled antennal contact', stim: 'You stimulated her neurons',
+  genetics: 'Virtual genetics activated her neurons',
 };
 
 export const LOOM_SOURCE = {

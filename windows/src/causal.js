@@ -58,7 +58,9 @@ export class InputHistory {
     this.sources = { loomL: new Array(capacity).fill(''), loomR: new Array(capacity).fill('') };
     this.head = 0;
     this.count = 0;
-    this.lastStim = null;    // { t, label }
+    // { t, label, channels }: `channels` are the sensory inputs an
+    // experimenter's stimulus used; null for a direct neural stimulation.
+    this.lastStim = null;
   }
 
   push(t, inputs, loomSources) {
@@ -71,7 +73,7 @@ export class InputHistory {
     if (this.count < this.capacity) this.count++;
   }
 
-  noteStimulation(t, label) { this.lastStim = { t, label }; }
+  noteStimulation(t, label, channels = null) { this.lastStim = { t, label, channels }; }
 
   // Newest-first iteration helper.
   _at(back) { return (this.head - 1 - back + this.capacity * 2) % this.capacity; }
@@ -107,8 +109,14 @@ export class InputHistory {
         sustained = { channel: c.key, label: c.label, onsetT: null, peak: latest, source: src, populations: c.populations };
       }
     });
-    if (this.lastStim && now - this.lastStim.t <= windowS && (!onset || this.lastStim.t >= onset.onsetT)) {
-      return { channel: 'stim', label: this.lastStim.label, onsetT: this.lastStim.t, peak: 1, source: 'experimenter', populations: [] };
+    // A direct neural stimulation names itself. A sensory stimulus (dust, a
+    // loom, a burst) is named only when its own channel is traced into the
+    // decision: otherwise dusting the antennae became the "cause" of any
+    // behaviour in the next 0.8 s, a moonwalk included.
+    const stim = this.lastStim;
+    if (stim && now - stim.t <= windowS && (!stim.channels || stim.channels.some((c) => !accept || accept.has(c)))
+      && (!onset || stim.t >= onset.onsetT)) {
+      return { channel: 'stim', label: stim.label, onsetT: stim.t, peak: 1, source: 'experimenter', populations: [] };
     }
     return onset || sustained;
   }
@@ -149,6 +157,9 @@ const BEHAVIOURS = Object.freeze({
   feeding: { group: 'proboscis', rule: 'Proboscis extended onto a food drop: she stays and feeds while the motor neurons keep it extended.', ruleKind: 'model-rule' },
   dart: { group: null, ruleChannels: ['loomL', 'loomR'], rule: 'High LC4/LPLC2 population rate without a giant-fiber spike: a body rule makes her dart away on foot.', ruleKind: 'model-rule' },
 });
+
+// The command population that decides a behaviour (null: a body rule).
+export function behaviourGroup(kind) { return BEHAVIOURS[kind]?.group ?? null; }
 
 // Build one explanation. `sim` must be the LIFSim that produced the event.
 export function explain(kind, { sim, now, history, rates, extra = {} }) {
